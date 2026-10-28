@@ -1,0 +1,23 @@
+{
+  "short_name": "Downloader",
+  "name": "HomeLab Media Downloader",
+  "start_url": "/",
+  "background_color": "#111111",
+  "theme_color": "#28a745",
+  "display": "standalone",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/app-icon.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app-icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}
