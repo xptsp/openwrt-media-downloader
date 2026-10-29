@@ -41,12 +41,13 @@ The system splits into a clean, lightweight directory footprint when installed:
 │   ├── crontabs/media-downloader       # Automation timer configuration (Once-a-day cron)
 │   └── init.d/media-downloader         # procd system service control daemon script
 └── usr/
-    ├── libexec/media-downloader.py    # Multi-threaded core scraping & download server engine
+    ├── libexec/media-downloader.py     # Multi-threaded core scraping & download server engine
     └── share/media-downloader/         # Web dashboard UI container folder
         ├── index.html                  # Responsive front-end dashboard template layout
         ├── manifest.json               # Progressive Web App configuration file
         ├── sw.js                       # Lightweight offline PWA service routing worker
         ├── app-icon.png                # Cohesive branding favicon and app launcher asset
+        ├── style.css                   # Style sheet for Responsive front-end dashboard
         └── wallpaper.webp              # Dashboard stretched background graphic
 ```
 
