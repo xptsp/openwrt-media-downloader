@@ -1,0 +1,260 @@
+* { box-sizing: border-box; }
+body { 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+    margin: 0; 
+    padding: 10px;
+    background-image: url('/wallpaper.webp');
+    background-repeat: no-repeat;
+    background-position: top left;
+    background-size: 100% 100%;
+    background-attachment: fixed;
+    color: #333; 
+    -webkit-tap-highlight-color: transparent;
+}
+.container { 
+    max-width: 900px; 
+    margin: 0 auto; 
+    background: rgba(255, 255, 255, 0.96); 
+    padding: 15px; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+}
+h1 { 
+    font-size: 1.5rem; 
+    margin-top: 5px; 
+    margin-bottom: 20px; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+}
+h2 { font-size: 1.2rem; margin-top: 10px; margin-bottom: 15px; padding-bottom: 5px; }
+
+/* Navigation Tabs Control Layout */
+.tab-nav {
+    display: flex;
+    gap: 5px;
+    border-bottom: 2px solid #ddd;
+    margin-bottom: 15px;
+}
+.tab-btn {
+    background: none;
+    color: #555;
+    border: none;
+    padding: 10px 15px;
+    font-size: 0.95rem;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+    width: auto;
+    display: inline-block;
+}
+.tab-btn.active {
+    background: #0070f3;
+    color: white;
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.form-group { margin-bottom: 12px; text-align: left; }
+label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem; }
+input[type="text"] { 
+    width: 100%; 
+    padding: 12px 10px; 
+    font-size: 1rem; 
+    border: 1px solid #ccc; 
+    border-radius: 6px; 
+    background: #fff;
+}
+
+.btn-group {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 15px;
+}
+button { 
+    width: 100%;
+    background: #0070f3; 
+    color: white; 
+    border: none; 
+    padding: 12px; 
+    font-size: 1rem;
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-weight: bold; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.secondary-btn { background: #555; }
+.success-btn { background: #28a745; }
+.remove-btn { background: #dc3545; }
+
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    margin-top: 10px;
+}
+table { width: 100%; border-collapse: collapse; min-width: 500px; }
+th, td { padding: 12px 10px; text-align: left; font-size: 0.9rem; border-bottom: 1px solid #ddd; vertical-align: middle; }
+th { background: #f8f9fa; font-weight: bold; }
+code { font-size: 0.8rem; background: #f1f1f1; padding: 2px 4px; border-radius: 4px; word-break: break-all; }
+
+/* Custom Dialog and Confirmation Modal Overlays */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+}
+.modal-overlay.active { opacity: 1; pointer-events: auto; }
+.modal-card {
+    background: white; padding: 20px; border-radius: 12px;
+    max-width: 500px; width: 92%; text-align: center;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    transform: scale(0.9); transition: transform 0.2s ease-in-out;
+}
+.modal-overlay.active .modal-card { transform: scale(1); }
+.modal-card h3 { margin-top: 0; font-size: 1.2rem; margin-bottom: 15px; }
+.modal-card p { color: #555; font-size: 0.95rem; margin-bottom: 20px; }
+.modal-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+.toast-notification {
+    position: fixed; bottom: 20px; left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: #333; color: white; padding: 12px 24px;
+    border-radius: 30px; font-weight: bold; font-size: 0.95rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1100;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    white-space: nowrap;
+}
+.toast-notification.active { transform: translateX(-50%) translateY(0); }
+
+@media (min-width: 576px) {
+    body { padding: 20px; }
+    .container { padding: 25px; }
+    h1 { font-size: 2rem; }
+    .btn-group { grid-template-columns: auto auto auto; justify-content: start; }
+    button { width: auto; padding: 10px 18px; }
+}
+
+/* --- Added Status Badges --- */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: white;
+    border-radius: 8px; /* Slightly tighter edge border style */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-width: 55px; /* Ensures all numbers match structurally across column rows */
+}
+
+/* --- Combined Name Link --- */
+.series-link {
+    color: #0070f3; 
+    text-decoration: none; 
+    font-weight: bold;
+}
+.series-link:hover {
+    text-decoration: underline;
+}
+
+/* --- Refactored Symmetrical Buttons --- */
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    border-radius: 6px;
+    min-width: 80px;
+    white-space: nowrap;
+    box-sizing: border-box;
+    height: 34px;
+    margin: 0;
+    border: none;
+    cursor: pointer;
+    color: white;
+}
+.action-btn.remove {
+    background: #dc3545;
+}
+.action-btn.remove:hover {
+    background: #bd2130;
+}
+
+.action-btn.edit {
+    background: #ffc107;
+    color: #212529;
+    margin-right: 5px; /* Adds a nice clean gap spacing row next to the Remove button */
+}
+.action-btn.edit:hover {
+    background: #e0a800;
+}
+
+.log-terminal {
+    background: #1e1e1e;
+    color: #00ff00;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    padding: 15px;
+    border-radius: 8px;
+    height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
+    text-align: left;
+}
+.log-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+}
+
+/* --- Storage Tracker Layout Styles --- */
+.storage-panel {
+    background: #f8f9fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 15px;
+}
+.storage-text {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+}
+.progress-container {
+    background: #edf2f7;
+    border-radius: 6px;
+    height: 12px;
+    width: 100%;
+    overflow: hidden;
+}
+.progress-bar {
+    background: #28a745;
+    height: 100%;
+    width: 0%; /* Adjusted dynamically by Javascript */
+    transition: width 0.4s ease-out;
+}
+.progress-bar.low-space {
+    background: #dc3545; /* Turns red if storage falls under 10% */
+}

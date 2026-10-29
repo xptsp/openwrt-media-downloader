@@ -1,0 +1,15 @@
+🔔 1.  Completed Download Webhooks (Discord / Telegram)
+
+Instead of checking the dashboard to see if an episode is ready, you can have your router message you directly the second an episode hits your disk.
+• How it works: A simple 5-line urllib.request function triggers inside your file download success block.
+• The Look: You get a smartphone notification: "📥 [HomeLab] Successfully downloaded The Divorce Insurance - Episode 6!"
+
+🗑️ 2. Abandoned / Corrupt File Auto-Cleanup
+
+If a download breaks halfway through (due to an internet drop or router reboot), it leaves a broken, unplayable media file on your hard drive.
+• How it works: When running a scan or cron cycle, if an .mkv file size is suspiciously small (e.g., under 10MB), the script safely purges it so the downloader queue can attempt a clean re-download on the next automation loop.
+
+🎯 3. Global "Force All Re-downloads" Button
+
+If a drive crashes or files are accidentally deleted locally, you currently have to manually clear out the downloaded_episodes tracking string for each show in /etc/config/media-downloader.
+• How it works: A small administrative API endpoint (/api/reset) that clears the download history metrics globally across your entries with one click, letting you re-fetch everything from scratch effortlessly.

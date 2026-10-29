@@ -1,0 +1,7 @@
+#!/bin/bash
+cp -Rv * ~/Compile/openwrt-x64/feeds/xptsp/packages/media-downloader/
+ssh homelab.lan 'cd ~/Public/openwrt-x64; make package/feeds/xptsp/media-downloader/compile V=sc -j4'
+cd ~/GitHub/openwrt-repo/
+rm media-downloader*.apk
+cp -v ~/Compile/openwrt-x64/./bin/packages/x86_64/xptsp/media-downloader*.apk apk/all/
+./repoUpdate.sh

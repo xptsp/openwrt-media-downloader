@@ -6,7 +6,16 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 ![Platform](https://shields.io)
 ![Language](https://shields.io)
 
-![screenshot.webp](screenshot.webp)
+
+---
+
+## Screenshots
+
+![screenshot_1.webp](screenshots/screenshot_1.webp)
+![screenshot_2.webp](screenshots/screenshot_2.webp)
+![screenshot_3.webp](screenshots/screenshot_3.webp)
+![screenshot_4.webp](screenshots/screenshot_4.webp)
+![screenshot_5.webp](screenshots/screenshot_5.webp)
 
 ---
 
@@ -97,4 +106,4 @@ Because mobile browsers restrict progressive web app features to secure network 
 ---
 
 ## 📄 License
-This application is distributed as free, open-source software under the MIT License. Feel free to modify and adapt it for your personal home labs!
+This application is distributed as free, open-source software under the Apache License 2.0. Feel free to modify and adapt it for your personal home labs!

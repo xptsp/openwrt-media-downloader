@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=media-downloader
-PKG_VERSION:=1.0.0
+PKG_VERSION:=2.0
 PKG_RELEASE:=1
 PKG_MAINTAINER:=OpenWrt Developer
 
@@ -40,6 +40,7 @@ define Package/media-downloader/install
 	$(INSTALL_DATA) ./files/manifest.json $(1)/usr/share/media-downloader/manifest.json
 	$(INSTALL_DATA) ./files/sw.js $(1)/usr/share/media-downloader/sw.js
 	$(INSTALL_DATA) ./files/app-icon.png $(1)/usr/share/media-downloader/app-icon.png
+	$(INSTALL_DATA) ./files/style.css $(1)/usr/share/media-downloader/style.css
 
 	# Install default empty UCI config profile
 	$(INSTALL_DIR) $(1)/etc/config

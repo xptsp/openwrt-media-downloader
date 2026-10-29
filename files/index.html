@@ -4,153 +4,123 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Media Downloader</title>
-    
-    <!-- Explicit absolute path linkages -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#28a745">
     <link rel="icon" type="image/png" href="/app-icon.png">
-
-    <style>
-        * { box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            margin: 0; 
-            padding: 10px;
-            background-image: url('/wallpaper.webp');
-            background-repeat: no-repeat;
-            background-position: top left;
-            background-size: 100% 100%;
-            background-attachment: fixed;
-            color: #333; 
-            -webkit-tap-highlight-color: transparent;
-        }
-        .container { 
-            max-width: 900px; 
-            margin: 0 auto; 
-            background: rgba(255, 255, 255, 0.96); 
-            padding: 15px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
-        }
-        h1 { 
-            font-size: 1.5rem; 
-            margin-top: 5px; 
-            margin-bottom: 20px; 
-            display: flex;
-            align-items: center;
-            justify-content: center; /* Horizontally centers content inside flexbox */
-            gap: 10px; /* Clean gap spacing between your app-icon image and span text */
-            text-align: center;
-        }
-        h2 { font-size: 1.2rem; margin-top: 25px; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
-        
-        .form-group { margin-bottom: 12px; }
-        label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem; }
-        input[type="text"] { 
-            width: 100%; 
-            padding: 12px 10px; /* Taller touch target */
-            font-size: 1rem; /* Prevents iOS auto-zoom on focus */
-            border: 1px solid #ccc; 
-            border-radius: 6px; 
-            background: #fff;
-        }
-        
-        /* Layout configuration buttons to stay compact on phone rows */
-        .btn-group {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 8px;
-            margin-top: 15px;
-        }
-        button { 
-            width: 100%;
-            background: #0070f3; 
-            color: white; 
-            border: none; 
-            padding: 12px; 
-            font-size: 1rem;
-            border-radius: 6px; 
-            cursor: pointer; 
-            font-weight: bold; 
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .secondary-btn { background: #555; }
-        .success-btn { background: #28a745; }
-        
-        /* Mobile-first scrolling wrapper table containment */
-        .table-responsive {
-            width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            background: white;
-            margin-top: 15px;
-        }
-        table { width: 100%; border-collapse: collapse; min-width: 500px; }
-        th, td { padding: 12px 10px; text-align: left; font-size: 0.9rem; border-bottom: 1px solid #ddd; }
-        th { background: #f8f9fa; font-weight: bold; }
-        code { font-size: 0.8rem; background: #f1f1f1; padding: 2px 4px; border-radius: 4px; word-break: break-all; }
-        .remove-btn { background: #dc3545; padding: 6px 10px; font-size: 0.85rem; width: auto; }
-
-        /* Tablet and Desktop screen adaptations */
-        @media (min-width: 576px) {
-            body { padding: 20px; }
-            .container { padding: 25px; }
-            h1 { font-size: 2rem; text-align: left; }
-            .btn-group { grid-template-columns: auto auto auto; justify-content: start; }
-            button { width: auto; padding: 10px 18px; }
-        }
-    </style>
+    <!-- Links to the clean standalone global styles -->
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="container">
-		<h1><img src="/app-icon.png" width=32 height=32> <span id="mainTitle"> Media Downloader</span></h1>
-        <form id="seriesForm">
-            <div class="form-group">
-                <label>Default Base Directory:</label>
-                <input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
+        <h1>
+            <img src="/app-icon.png" width="32" height="32" style="vertical-align: middle;"> 
+            <span id="mainTitle">Media Downloader</span>
+        </h1>
+
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Monitored Feeds</button>
+            <button class="tab-btn" onclick="switchTab('logs-tab')">📜 Activity Logs</button> <!-- Added -->
+            <button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Configuration</button>
+        </div>
+
+        <!-- TAB 1: Monitored Feeds List -->
+        <div id="feeds-tab" class="tab-content active">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2>Active Sync Feeds</h2>
+                <button class="success-btn" onclick="openAddSeriesModal()" style="width:auto; padding: 8px 14px; font-size: 0.9rem;">➕ Add Series</button>
             </div>
-            <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
-            
-            <div class="form-group">
-                <label>Series Name:</label>
-                <input type="text" id="name" required placeholder="Summer Vacation (2026)">
+            <div class="table-responsive">
+                <table id="seriesTable">
+                    <thead>
+                        <tr>
+                            <th>Latest</th>
+                            <th>Name</th>
+                            <th>Path</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
             </div>
-            <div class="form-group">
-                <label>Source URL:</label>
-                <input type="text" id="url" required placeholder="https://thenkiri.com...">
+            <div class="btn-group" style="margin-top: 20px;">
+                <button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')">🔍 Scan Storage Paths</button>
+                <button type="button" class="success-btn" onclick="triggerAction('/api/download')">📥 Sync Updates Now</button>
             </div>
-            <div class="form-group">
-                <label>Destination Path (Auto-generates):</label>
-                <input type="text" id="path" required placeholder="Will auto-fill based on name...">
+        </div>
+
+        <!-- TAB 2: Live Activity Logs Terminal View -->
+        <div id="logs-tab" class="tab-content">
+            <h2>System Activity Log</h2>
+            <div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
+            <div class="log-actions">
+                <button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
             </div>
-            
-            <div class="btn-group">
-                <button type="submit">💾 Save Series</button>
-                <button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')">🔍 Scan Storage</button>
-                <button type="button" class="success-btn" onclick="triggerAction('/api/download')">📥 Sync Now</button>
-            </div>
-        </form>
-        
-        <h2>📋 Configured Monitored Feeds</h2>
-        <div class="table-responsive">
-            <table id="seriesTable">
-                <thead>
-                    <tr>
-                        <th>Status</th>
-                        <th>Name</th>
-                        <th>Path</th>
-                        <th>Series Link</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+        </div>
+
+        <!-- TAB 3: Program Configuration Panel -->
+        <div id="settings-tab" class="tab-content">
+
+            <h2>System Application Settings</h2>
+            <form id="configForm">
+		        <div id="storagePanel" class="storage-panel" style="display: none;">
+	                <div class="form-group">
+	                    <label>Default Base Directory:</label>
+	                    <input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
+	                </div>
+		            <div class="storage-text">
+		                <span>💽 Disk Storage</span>
+		                <span id="storageStats">0 GB / 0 GB Free (0%)</span>
+		            </div>
+		            <div class="progress-container">
+		                <div id="storageBar" class="progress-bar"></div>
+		            </div>
+		        </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="success-btn">💾 Save Base Configuration</button>
+                </div>
+            </form>
         </div>
     </div>
+
+    <!-- MODAL 1: Add New Series overlay overlay box window layout -->
+    <div id="addSeriesModal" class="modal-overlay">
+        <div class="modal-card">
+            <h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
+            <form id="seriesForm">
+                <div class="form-group">
+                    <label>Series Name:</label>
+                    <input type="text" id="name" required placeholder="Summer Vacation (2026)">
+                </div>
+                <div class="form-group">
+                    <label>Source URL:</label>
+                    <input type="text" id="url" required placeholder="https://thenkiri.com...">
+                </div>
+                <div class="form-group">
+                    <label>Destination Path (Auto-generates):</label>
+                    <input type="text" id="path" required placeholder="Will auto-fill based on name...">
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
+                    <button type="submit" class="success-btn">💾 Save Series</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Uniform interactive confirmations framework window container -->
+    <div id="customModal" class="modal-overlay">
+        <div class="modal-card">
+            <h3 id="modalTitle">Confirmation Required</h3>
+            <p id="modalMessage">Are you sure you want to perform this action?</p>
+            <div class="modal-buttons">
+                <button id="modalCancelBtn" class="secondary-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Cancel</button>
+                <button id="modalConfirmBtn" class="remove-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="customToast" class="toast-notification">Task dispatched...</div>
+
     <script>
         const nameInput = document.getElementById('name');
         const baseDirInput = document.getElementById('base_dir');
@@ -167,6 +137,28 @@
         nameInput.addEventListener('input', updateDestinationPath);
         baseDirInput.addEventListener('input', updateDestinationPath);
 
+        const showToast = (message, isSuccess = true) => {
+            const toast = document.getElementById('customToast');
+            toast.innerText = message;
+            toast.style.background = isSuccess ? '#28a745' : '#dc3545';
+            toast.classList.add('active');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        };
+
+        const showConfirmModal = (title, message, onConfirm) => {
+            const modal = document.getElementById('customModal');
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalMessage').innerText = message;
+            modal.classList.add('active');
+            
+            const confirmBtn = document.getElementById('modalConfirmBtn');
+            const cancelBtn = document.getElementById('modalCancelBtn');
+            const close = () => modal.classList.remove('active');
+            
+            confirmBtn.onclick = () => { onConfirm(); close(); };
+            cancelBtn.onclick = close;
+        };
+
         const loadDashboardData = async () => {
             const res = await fetch('/api/series');
             const data = await res.json();
@@ -175,84 +167,72 @@
                 baseDirInput.value = data.global.base_dir;
             }
 
+            // 📊 Calculate and update the dynamic storage disk bar metrics
+            if (data.global && data.global.storage_total && data.global.storage_free) {
+                const total = parseFloat(data.global.storage_total);
+                const free = parseFloat(data.global.storage_free);
+                const used = total - free;
+                const freePct = parseFloat(data.global.storage_free_pct);
+                const usedPct = 100 - freePct;
+
+                document.getElementById('storagePanel').style.display = 'block';
+                document.getElementById('storageStats').innerText = `${free.toFixed(1)} GB / ${total.toFixed(1)} GB Free (${freePct.toFixed(0)}%)`;
+                
+                const bar = document.getElementById('storageBar');
+                bar.style.width = `${usedPct}%`; // The filled portion represents used storage space
+
+                // Turn the bar red if space drops below a critical 10% boundary threshold
+                if (freePct < 10) {
+                    bar.classList.add('low-space');
+                } else {
+                    bar.classList.remove('low-space');
+                }
+            }
+
             const tbody = document.querySelector('#seriesTable tbody');
             tbody.innerHTML = '';
             
             const currentTime = parseInt(data.global.current_time || Math.floor(Date.now() / 1000));
-            const THREE_WEEKS_SECONDS = 21 * 24 * 60 * 60; // 21 Days
+            const THREE_WEEKS_SECONDS = 21 * 24 * 60 * 60;
 
             Object.keys(data.series).forEach(id => {
                 const sData = data.series[id];
-                const hasEpisodes = sData.downloaded_episodes && sData.downloaded_episodes.length > 0;
                 const lastUpdateTime = parseInt(sData.last_update || 0);
                 
-                let badgeText = 'Monitoring';
-                let badgeColor = '#6c757d'; // Gray
-                
-                if (hasEpisodes) {
-                    // If active but no new episodes have dropped in over 3 weeks
+                let badgeText = 'IDLE';
+                let badgeColor = '#6c757d'; // Default tracking gray
+
+                // Check if history tracking arrays contain parsed elements
+                if (sData.downloaded_episodes && sData.downloaded_episodes.length > 0) {
+                    // Extract the highest episode integer value safely
+                    const epNumbers = sData.downloaded_episodes.map(Number);
+                    const latestEpisode = Math.max(...epNumbers);
+                    badgeText = `EP ${latestEpisode}`;
+                    
+                    // Style aging: Blue if complete/stale (>3 weeks), Green if active
                     if (lastUpdateTime > 0 && (currentTime - lastUpdateTime) > THREE_WEEKS_SECONDS) {
-                        badgeText = 'Complete';
-                        badgeColor = '#0070f3'; // Blue
+                        badgeColor = '#0070f3'; // Complete Blue
                     } else {
-                        badgeText = 'Active';
-                        badgeColor = '#28a745'; // Green
+                        badgeColor = '#28a745'; // Active Green
                     }
                 }
                 
+                const cleanName = sData.name.replace(/['"]/g, '\\$&'); 
+                const cleanUrl = sData.url.replace(/['"]/g, '\\$&');
+                const cleanPath = sData.path.replace(/['"]/g, '\\$&');
+
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>
-                        <span style="
-                            display: inline-block;
-                            padding: 4px 8px;
-                            font-size: 0.75rem;
-                            font-weight: bold;
-                            color: white;
-                            background-color: ${badgeColor};
-                            border-radius: 12px;
-                            text-transform: uppercase;
-                            letter-spacing: 0.5px;
-                        ">${badgeText}</span>
+                        <span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
                     </td>
-                    <td><b>${sData.name}</b></td>
+                    <td>
+                        <a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a>
+                    </td>
                     <td><code>${sData.path}</code></td>
                     <td>
-                        <!-- Unified green button targeting identical padding limits -->
-                        <a href="${sData.url}" target="_blank" style="
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                            background: #28a745;
-                            color: white;
-                            text-decoration: none;
-                            padding: 6px 12px;
-                            font-size: 0.85rem;
-                            font-weight: bold;
-                            border-radius: 6px;
-                            min-width: 80px;
-                            text-align: center;
-                            white-space: nowrap;
-                            box-sizing: border-box;
-                            height: 34px; /* Hardcoded baseline height matching */
-                        ">Series</a>
-                    </td>
-                    <td>
-                        <!-- Unified red button utilizing matching height framework metrics -->
-                        <button class="remove-btn" onclick="deleteSeries('${id}')" style="
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                            padding: 6px 12px;
-                            font-size: 0.85rem;
-                            font-weight: bold;
-                            border-radius: 6px;
-                            min-width: 80px;
-                            white-space: nowrap;
-                            box-sizing: border-box;
-                            height: 34px;
-                            margin: 0;
-                        ">Remove</button>
+                        <button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
+                        <button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -261,18 +241,20 @@
 
         document.getElementById('seriesForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const name = nameInput.value.trim();
-            const derivedId = name.toLowerCase().replace(/[^a-z]/g, '');
             
-            if (!derivedId) {
-                alert('Series Name must contain at least one alphabetic character to create an ID.');
+            const name = nameInput.value.trim();
+            // If editing, preserve the original configurations ID mapping; if adding from scratch, derive it dynamically
+            const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z]/g, '');
+            
+            if (!targetId) {
+                showToast('Series Name must contain alphabetic characters!', false);
                 return;
             }
 
-            await fetch(`/api/series/${derivedId}`, {
+            await fetch(`/api/series/${targetId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                body: JSON.stringify({ 
                     base_dir: baseDirInput.value.trim(),
                     name: name, 
                     url: document.getElementById('url').value.trim(), 
@@ -280,29 +262,122 @@
                 })
             });
             
-            nameInput.value = '';
-            document.getElementById('url').value = '';
-            pathInput.value = '';
-            loadDashboardData();
+            const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
+            closeAddSeriesModal();
+            showToast(successMsg);
+            await loadDashboardData();
         });
 
-        const deleteSeries = async (id) => { 
-            if (confirm('Are you sure you want to remove this series?')) { 
-                // 👇 Adding 'await' forces the browser to wait until the backend deletion is fully complete
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await fetch('/api/series/_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    base_dir: baseDirInput.value.trim()
+                })
+            });
+            showToast('Base configurations saved to router.');
+            await loadDashboardData();
+        });
+
+        const deleteSeries = async (id, friendlyName) => { 
+            showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
                 await fetch(`/api/series/${id}`, { method: 'DELETE' }); 
-                
-                // Now this fresh fetch call will always read the newly updated file
-                await loadDashboardData(); 
-            } 
+                await loadDashboardData();
+                showToast('Series deleted successfully.');
+            });
         };
-        const triggerAction = async (endpoint) => { alert('Task sent...'); await fetch(endpoint, { method: 'POST' }); };
+
+        const triggerAction = async (endpoint) => { 
+            showToast('Processing request engine cycle...'); 
+            await fetch(endpoint, { method: 'POST' }); 
+            
+            // 🔄 Automatically select the Activity Logs tab container
+            const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
+            if (logTabButton) {
+                // Clear any running background polling interval first
+                clearInterval(logInterval);
+                
+                // Remove active styling from all tabs
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
+                
+                // Activate the logs window view layout panels
+                document.getElementById('logs-tab').classList.add('active');
+                logTabButton.classList.add('active');
+                
+                // Fetch the baseline logs and start the live 3-second auto-refresh pool
+                fetchEngineLogs();
+                logInterval = setInterval(fetchEngineLogs, 3000);
+            }
+        };
+
+        const openAddSeriesModal = () => {
+            editModeId = null; // Clear out edit tracking context
+            document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
+            document.getElementById('seriesForm').reset();
+            updateDestinationPath();
+            document.getElementById('addSeriesModal').classList.add('active');
+        };
+
+        const openEditSeriesModal = (id, name, url, path) => {
+            editModeId = id; // Lock in the specific ID block we are editing
+            document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${name}`;
+            
+            // Populate form fields with active configuration states
+            document.getElementById('name').value = name;
+            document.getElementById('url').value = url;
+            document.getElementById('path').value = path;
+            
+            document.getElementById('addSeriesModal').classList.add('active');
+        };
+
+        const closeAddSeriesModal = () => {
+            editModeId = null;
+            document.getElementById('seriesForm').reset();
+            document.getElementById('addSeriesModal').classList.remove('active');
+        };
+
         window.onload = loadDashboardData;
-    </script>
-    <script>
-		// Verify Service Worker Initialization
-		if ('serviceWorker' in navigator) {
-		    navigator.serviceWorker.register('/sw.js')
-		}
+
+        let logInterval = null; // 👈 Add this tracking handle at the top of your script block
+
+        const fetchEngineLogs = async () => {
+            try {
+                const res = await fetch('/api/logs');
+                const logs = await res.json();
+                const terminal = document.getElementById('logTerminal');
+                
+                if (logs.length === 0) {
+                    terminal.innerText = "No logged actions registered yet.";
+                } else {
+                    terminal.innerText = logs.join('\n');
+                    
+                    // ⏱️ Auto-scrolls the log window to the bottom line instantly as new logs arrive
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            } catch (err) {
+                document.getElementById('logTerminal').innerText = `Error loading engine log stream: ${err}`;
+            }
+        };
+
+        const switchTab = (tabId) => {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+            
+            // Clear any active polling loops when leaving the logs tab to save router CPU
+            clearInterval(logInterval);
+            
+            if (tabId === 'logs-tab') {
+                fetchEngineLogs();
+                // 🔄 Set up a live background polling loop to pull fresh logs every 3 seconds
+                logInterval = setInterval(fetchEngineLogs, 3000);
+            }
+        };
     </script>
 </body>
 </html>
