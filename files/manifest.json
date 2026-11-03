@@ -1,6 +1,6 @@
 {
-  "short_name": "Downloader",
-  "name": "HomeLab Media Downloader",
+  "short_name": "Media Downloader",
+  "name": "Media Downloader",
   "start_url": "/",
   "background_color": "#111111",
   "theme_color": "#28a745",

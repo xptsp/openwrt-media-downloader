@@ -1,0 +1,15 @@
+#!/bin/bash
+scp ./files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader.py
+
+# Install web layout layer template
+scp ./files/index.html root@homelab.lan:/usr/share/media-downloader/index.html
+scp ./files/wallpaper.webp root@homelab.lan:/usr/share/media-downloader/wallpaper.webp
+scp ./files/manifest.json root@homelab.lan:/usr/share/media-downloader/manifest.json
+scp ./files/sw.js root@homelab.lan:/usr/share/media-downloader/sw.js
+scp ./files/app-icon.png root@homelab.lan:/usr/share/media-downloader/app-icon.png
+scp ./files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
+
+scp ./files/media-downloader.crontab root@homelab.lan:/etc/crontabs/media-downloader
+scp ./files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
+
+ssh root@homelab.lan service media-downloader restart

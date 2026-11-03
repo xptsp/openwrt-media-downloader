@@ -1,260 +1,436 @@
-* { box-sizing: border-box; }
-body { 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-    margin: 0; 
-    padding: 10px;
-    background-image: url('/wallpaper.webp');
-    background-repeat: no-repeat;
-    background-position: top left;
-    background-size: 100% 100%;
+/* ==========================================================================
+   1. GLOBAL SYSTEM BRANDING & FOUNDATIONS
+   ========================================================================== */
+:root {
+    --primary-success: #28a745;
+    --primary-success-hover: #218838;
+    --secondary-gray: #6c757d;
+    --secondary-gray-hover: #5a6268;
+    --danger-red: #dc3545;
+    --danger-red-hover: #c82333;
+    --warning-orange: #ffc107;
+    --warning-orange-hover: #e0a800;
+    --dark-bg: #1e1e1e;
+    --light-border: #dee2e6;
+    --text-main: #333333;
+    --text-muted: #6c757d;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-main);
+    
+    /* 🖼️ RESTORE GLOBAL UI WALLPAPER: Link up the background asset endpoint */
+    background-image: url('./wallpaper.webp');
     background-attachment: fixed;
-    color: #333; 
-    -webkit-tap-highlight-color: transparent;
+    background-size: cover;
+    background-position: center;
+    
+    line-height: 1.5;
+    padding: 20px 10px;
 }
-.container { 
-    max-width: 900px; 
-    margin: 0 auto; 
-    background: rgba(255, 255, 255, 0.96); 
-    padding: 15px; 
-    border-radius: 12px; 
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #ffffff;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
-h1 { 
-    font-size: 1.5rem; 
-    margin-top: 5px; 
-    margin-bottom: 20px; 
+
+h1 {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-    text-align: center;
+    gap: 12px;
+    font-size: 1.8rem;
+    margin-bottom: 25px;
 }
-h2 { font-size: 1.2rem; margin-top: 10px; margin-bottom: 15px; padding-bottom: 5px; }
 
-/* Navigation Tabs Control Layout */
+h2 {
+    font-size: 1.3rem;
+    color: #495057;
+}
+
+code {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    background: #f1f3f5;
+    padding: 3px 6px;
+    border-radius: 4px;
+    color: #d63384;
+}
+
+/* ==========================================================================
+   2. INTERACTIVE TAB NAVIGATION PANELS
+   ========================================================================== */
 .tab-nav {
     display: flex;
-    gap: 5px;
-    border-bottom: 2px solid #ddd;
-    margin-bottom: 15px;
+    gap: 8px;
+    border-bottom: 2px solid var(--light-border);
+    margin-bottom: 25px;
 }
+
 .tab-btn {
     background: none;
-    color: #555;
     border: none;
-    padding: 10px 15px;
+    outline: none;
+    padding: 10px 16px;
     font-size: 0.95rem;
-    font-weight: bold;
+    font-weight: 600;
+    color: var(--secondary-gray);
     cursor: pointer;
     border-radius: 6px 6px 0 0;
-    width: auto;
-    display: inline-block;
+    transition: all 0.2s ease;
+    margin-bottom: -2px;
 }
+
+.tab-btn:hover {
+    color: #495057;
+    background-color: #e9ecef;
+}
+
 .tab-btn.active {
-    background: #0070f3;
-    color: white;
-}
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-
-.form-group { margin-bottom: 12px; text-align: left; }
-label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem; }
-input[type="text"] { 
-    width: 100%; 
-    padding: 12px 10px; 
-    font-size: 1rem; 
-    border: 1px solid #ccc; 
-    border-radius: 6px; 
-    background: #fff;
+    color: var(--primary-success);
+    border-bottom: 2px solid var(--primary-success);
+    background-color: #f8f9fa;
 }
 
-.btn-group {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-    margin-top: 15px;
+.tab-content {
+    display: none;
 }
-button { 
-    width: 100%;
-    background: #0070f3; 
-    color: white; 
-    border: none; 
-    padding: 12px; 
-    font-size: 1rem;
-    border-radius: 6px; 
-    cursor: pointer; 
-    font-weight: bold; 
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.secondary-btn { background: #555; }
-.success-btn { background: #28a745; }
-.remove-btn { background: #dc3545; }
 
+.tab-content.active {
+    display: block;
+}
+
+/* ==========================================================================
+   3. TABULAR DATA WORKSPACE MATRICES
+   ========================================================================== */
 .table-responsive {
     width: 100%;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    background: white;
-    margin-top: 10px;
-}
-table { width: 100%; border-collapse: collapse; min-width: 500px; }
-th, td { padding: 12px 10px; text-align: left; font-size: 0.9rem; border-bottom: 1px solid #ddd; vertical-align: middle; }
-th { background: #f8f9fa; font-weight: bold; }
-code { font-size: 0.8rem; background: #f1f1f1; padding: 2px 4px; border-radius: 4px; word-break: break-all; }
-
-/* Custom Dialog and Confirmation Modal Overlays */
-.modal-overlay {
-    position: fixed;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(4px);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000; opacity: 0; pointer-events: none;
-    transition: opacity 0.2s ease-in-out;
-}
-.modal-overlay.active { opacity: 1; pointer-events: auto; }
-.modal-card {
-    background: white; padding: 20px; border-radius: 12px;
-    max-width: 500px; width: 92%; text-align: center;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    transform: scale(0.9); transition: transform 0.2s ease-in-out;
-}
-.modal-overlay.active .modal-card { transform: scale(1); }
-.modal-card h3 { margin-top: 0; font-size: 1.2rem; margin-bottom: 15px; }
-.modal-card p { color: #555; font-size: 0.95rem; margin-bottom: 20px; }
-.modal-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
-
-.toast-notification {
-    position: fixed; bottom: 20px; left: 50%;
-    transform: translateX(-50%) translateY(100px);
-    background: #333; color: white; padding: 12px 24px;
-    border-radius: 30px; font-weight: bold; font-size: 0.95rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1100;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    white-space: nowrap;
-}
-.toast-notification.active { transform: translateX(-50%) translateY(0); }
-
-@media (min-width: 576px) {
-    body { padding: 20px; }
-    .container { padding: 25px; }
-    h1 { font-size: 2rem; }
-    .btn-group { grid-template-columns: auto auto auto; justify-content: start; }
-    button { width: auto; padding: 10px 18px; }
+    margin-top: 15px;
 }
 
-/* --- Added Status Badges --- */
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px 10px;
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: white;
-    border-radius: 8px; /* Slightly tighter edge border style */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+th, td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--light-border);
+    vertical-align: middle;
+}
+
+th {
+    background-color: #f8f9fa;
+    font-weight: 700;
+    color: #495057;
     text-transform: uppercase;
+    font-size: 0.78rem;
     letter-spacing: 0.5px;
-    min-width: 55px; /* Ensures all numbers match structurally across column rows */
 }
 
-/* --- Combined Name Link --- */
-.series-link {
-    color: #0070f3; 
-    text-decoration: none; 
-    font-weight: bold;
+tr:hover {
+    background-color: #fafbfc;
 }
+
+.series-link {
+    color: #0056b3;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
 .series-link:hover {
+    color: #003d80;
     text-decoration: underline;
 }
 
-/* --- Refactored Symmetrical Buttons --- */
+/* ==========================================================================
+   4. SYSTEM UTILITY CONTROL BUTTONS
+   ========================================================================== */
+.btn-group {
+    display: flex;
+    gap: 12px;
+}
+
+button {
+    font-family: inherit;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.success-btn {
+    background-color: var(--primary-success);
+    color: #ffffff;
+    padding: 10px 20px;
+}
+.success-btn:hover { background-color: var(--primary-success-hover); }
+
+.secondary-btn {
+    background-color: var(--secondary-gray);
+    color: #ffffff;
+    padding: 10px 20px;
+}
+.secondary-btn:hover { background-color: var(--secondary-gray-hover); }
+
 .action-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     padding: 6px 12px;
     font-size: 0.85rem;
-    font-weight: bold;
-    border-radius: 6px;
-    min-width: 80px;
-    white-space: nowrap;
-    box-sizing: border-box;
-    height: 34px;
-    margin: 0;
-    border: none;
-    cursor: pointer;
-    color: white;
-}
-.action-btn.remove {
-    background: #dc3545;
-}
-.action-btn.remove:hover {
-    background: #bd2130;
+    color: #ffffff;
 }
 
-.action-btn.edit {
-    background: #ffc107;
-    color: #212529;
-    margin-right: 5px; /* Adds a nice clean gap spacing row next to the Remove button */
-}
-.action-btn.edit:hover {
-    background: #e0a800;
-}
+.action-btn.edit { background-color: var(--warning-orange); color: #212529; }
+.action-btn.edit:hover { background-color: var(--warning-orange-hover); }
 
+.action-btn.remove { background-color: var(--danger-red); }
+.action-btn.remove:hover { background-color: var(--danger-red-hover); }
+
+/* ==========================================================================
+   5. REAL-TIME LOG TERMINALS & STORAGE MONITORS
+   ========================================================================== */
 .log-terminal {
-    background: #1e1e1e;
-    color: #00ff00;
-    font-family: 'Courier New', Courier, monospace;
+    background-color: var(--dark-bg);
+    color: #a2b4c7;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.85rem;
     padding: 15px;
-    border-radius: 8px;
-    height: 400px;
+    border-radius: 6px;
+    height: 350px;
     overflow-y: auto;
     white-space: pre-wrap;
-    word-break: break-all;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
-    text-align: left;
-}
-.log-actions {
-    margin-top: 10px;
-    display: flex;
-    gap: 8px;
+    margin: 15px 0;
+    border: 1px solid #333;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
 }
 
-/* --- Storage Tracker Layout Styles --- */
-.storage-panel {
-    background: #f8f9fa;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 12px;
-    margin-top: 15px;
+.log-actions {
+    display: flex;
+    justify-content: flex-end;
 }
-.storage-text {
-    font-size: 0.9rem;
+
+.storage-panel {
+    background-color: #f8f9fa;
+    border: 1px solid var(--light-border);
+    padding: 20px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
     font-weight: 600;
-    color: #4a5568;
     margin-bottom: 6px;
+    color: #495057;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.95rem;
+}
+
+.storage-text {
     display: flex;
     justify-content: space-between;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-top: 10px;
+    color: var(--text-muted);
 }
+
 .progress-container {
-    background: #edf2f7;
-    border-radius: 6px;
-    height: 12px;
     width: 100%;
+    background-color: #e9ecef;
+    height: 12px;
+    border-radius: 6px;
     overflow: hidden;
+    margin-top: 6px;
 }
+
 .progress-bar {
-    background: #28a745;
+    width: 0%;
+    background-color: var(--primary-success);
     height: 100%;
-    width: 0%; /* Adjusted dynamically by Javascript */
-    transition: width 0.4s ease-out;
+    transition: width 0.3s ease;
 }
+
 .progress-bar.low-space {
-    background: #dc3545; /* Turns red if storage falls under 10% */
+    background-color: var(--danger-red);
+}
+
+/* ==========================================================================
+   6. UI STATUS BADGES & DIALOG MODAL LAYOUTS
+   ========================================================================== */
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #ffffff;
+    border-radius: 4px;
+    font-family: SFMono-Regular, monospace;
+    text-align: center;
+    min-width: 60px;
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 1000;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal-card {
+    background: #ffffff;
+    padding: 25px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+}
+
+.modal-card h3 {
+    margin-bottom: 20px;
+    color: #343a40;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.toast-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    color: #ffffff;
+    padding: 12px 24px;
+    border-radius: 4px;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    z-index: 2000;
+}
+
+.toast-notification.active {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* ==========================================================================
+   7. 📱 COMPREHENSIVE RESPONSIVE MOBILIZER ENGINE (1024px VIEWPORT CLAMP)
+   ========================================================================== */
+@media screen and (max-width: 1024px) {
+    /* Hard-drop the selected structural columns from the rendering engine instantly */
+    .mobile-hide,
+    #seriesTable th:nth-child(1),
+    #seriesTable th:nth-child(3),
+    #seriesTable td:nth-child(1),
+    #seriesTable td:nth-child(3) {
+        display: none !important;
+    }
+
+    /* Enforce rigid 2-column tabular matrix behavior layout maps */
+    table, thead, tbody {
+        display: table !important;
+        width: 100% !important;
+    }
+
+    tr {
+        display: table-row !important;
+    }
+    
+    #seriesTable th, 
+    #seriesTable td {
+        display: table-cell !important;
+        padding: 12px 8px !important;
+        vertical-align: middle !important;
+        border-bottom: 1px solid var(--light-border) !important;
+    }
+
+    /* Clamp the Actions cell container width to prevent floating layout drift */
+    #seriesTable td:nth-child(4) {
+        width: 1% !important;
+        white-space: nowrap !important;
+        text-align: right !important;
+    }
+
+    /* Lock down action button spacing elements to standard sizing parameters */
+    .action-btn {
+        display: inline-block !important;
+        width: auto !important;
+        margin: 0 3px !important;
+        padding: 6px 12px !important;
+        font-size: 0.82rem !important;
+        font-weight: bold !important;
+        border-radius: 4px !important;
+    }
+
+    /* 🔄 SWAP POSITION RULES: Force cell to flex-row-reverse to put badge on the left */
+    #seriesTable td.responsive-name-cell {
+        display: flex !important;
+        flex-direction: row-reverse !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        gap: 8px !important;
+        text-align: left !important;
+        border-bottom: none !important; /* Prevents double borders from flex conversion */
+    }
+
+    #seriesTable td.responsive-name-cell .series-title-text {
+        display: inline-block !important;
+        margin: 0 !important;
+    }
+
+    /* Paint the responsive status badge layout */
+    #seriesTable td.responsive-name-cell::after {
+        content: attr(data-latest);
+        display: inline-block !important;
+        padding: 4px 8px !important;
+        font-size: 0.75rem !important;
+        font-weight: bold !important;
+        color: #ffffff !important;
+        border-radius: 4px !important;
+        font-family: SFMono-Regular, monospace !important;
+        background-color: var(--badge-bg, #6c757d) !important;
+        white-space: nowrap !important;
+    }
 }

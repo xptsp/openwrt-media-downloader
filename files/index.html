@@ -18,9 +18,9 @@
         </h1>
 
         <div class="tab-nav">
-            <button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Monitored Feeds</button>
-            <button class="tab-btn" onclick="switchTab('logs-tab')">📜 Activity Logs</button> <!-- Added -->
-            <button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Configuration</button>
+            <button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Feeds</button>
+            <button class="tab-btn" onclick="switchTab('logs-tab')">📜 Logs</button> <!-- Added -->
+            <button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Settings</button>
         </div>
 
         <!-- TAB 1: Monitored Feeds List -->
@@ -33,10 +33,10 @@
                 <table id="seriesTable">
                     <thead>
                         <tr>
-                            <th>Latest</th>
+                            <th class="mobile-hide">Latest</th>
                             <th>Name</th>
-                            <th>Path</th>
-                            <th>Actions</th>
+                            <th class="mobile-hide">Path</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -55,6 +55,15 @@
             <div class="log-actions">
                 <button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
             </div>
+			<div id="globalProgressWrapper" style="display:none; margin-bottom:15px; padding:10px; background:#f8f9fa; border-radius:5px; border-left:4px solid #28a745;">
+				<div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem;">
+					<span id="progressTaskName">Downloading...</span>
+					<span id="progressTaskPercent">0%</span>
+				</div>
+				<div style="width:100%; background:#e9ecef; height:8px; border-radius:4px; overflow:hidden;">
+					<div id="globalProgressBar" style="width:0%; background:#28a745; height:100%; transition:width 0.2s ease;"></div>
+				</div>
+			</div>
         </div>
 
         <!-- TAB 3: Program Configuration Panel -->
@@ -223,19 +232,25 @@
 
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>
+                    <td class="mobile-hide">
                         <span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
                     </td>
-                    <td>
-                        <a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a>
+                    <td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+                        <span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
                     </td>
-                    <td><code>${sData.path}</code></td>
+                    <td class="mobile-hide"><code>${sData.path}</code></td>
                     <td>
                         <button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
                         <button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
                     </td>
                 `;
                 tbody.appendChild(row);
+
+				// Applies the dynamic badging colors to the mobile CSS pseudo-elements
+				document.querySelectorAll('.responsive-name-cell').forEach(cell => {
+					const color = cell.getAttribute('data-badge-color');
+					cell.style.setProperty('--badge-bg', color);
+				});
             });
         };
 
@@ -293,7 +308,6 @@
             showToast('Processing request engine cycle...'); 
             await fetch(endpoint, { method: 'POST' }); 
             
-            // 🔄 Automatically select the Activity Logs tab container
             const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
             if (logTabButton) {
                 // Clear any running background polling interval first
@@ -307,9 +321,27 @@
                 document.getElementById('logs-tab').classList.add('active');
                 logTabButton.classList.add('active');
                 
-                // Fetch the baseline logs and start the live 3-second auto-refresh pool
-                fetchEngineLogs();
-                logInterval = setInterval(fetchEngineLogs, 3000);
+                // Fetch baseline logs immediately
+                await fetchEngineLogs();
+                
+                // 🔄 Set up a live auto-monitoring polling loop
+                logInterval = setInterval(async () => {
+                    await fetchEngineLogs();
+                    
+                    const terminalText = document.getElementById('logTerminal').innerText;
+                    
+                    // 🎯 Check if the backend worker threads have logged their completion keywords
+                    const cycleFinished = terminalText.includes("loop finalized.") || 
+                                          terminalText.includes("sync complete.");
+                    
+                    if (cycleFinished) {
+                        clearInterval(logInterval); // Halt log polling to reduce router CPU strain
+                        showToast('Sync process complete! Updating feed records...');
+                        
+                        // 🚀 CRITICAL REFRESH: Repaint the active feeds table rows with new storage updates!
+                        await loadDashboardData();
+                    }
+                }, 3000);
             }
         };
 
@@ -345,6 +377,7 @@
 
         const fetchEngineLogs = async () => {
             try {
+                // 1. Fetch text logs from the engine
                 const res = await fetch('/api/logs');
                 const logs = await res.json();
                 const terminal = document.getElementById('logTerminal');
@@ -353,12 +386,31 @@
                     terminal.innerText = "No logged actions registered yet.";
                 } else {
                     terminal.innerText = logs.join('\n');
-                    
-                    // ⏱️ Auto-scrolls the log window to the bottom line instantly as new logs arrive
-                    terminal.scrollTop = terminal.scrollHeight;
+                    terminal.scrollTop = terminal.scrollHeight; // Auto-scrolls console
                 }
+
+                // 2. 📊 Fetch active binary stream progress states from Python memory
+                const progRes = await fetch('/api/progress');
+                const activeJobs = await progRes.json();
+                const wrapper = document.getElementById('logProgressWrapper');
+                
+                const downloadingShows = Object.keys(activeJobs);
+                if (downloadingShows.length === 0) {
+                    wrapper.style.display = 'none'; // Keep container invisible if idle
+                    return;
+                }
+                
+                // Track and render the first active item in the job dictionary array
+                const activeShowKey = downloadingShows[0];
+                const currentJob = activeJobs[activeShowKey];
+                
+                wrapper.style.display = 'block';
+                document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
+                document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
+                document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
+
             } catch (err) {
-                document.getElementById('logTerminal').innerText = `Error loading engine log stream: ${err}`;
+                console.error("Engine logs or progress metrics retrieval failure:", err);
             }
         };
 
