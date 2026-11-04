@@ -23,8 +23,8 @@
 				<button class="tab-btn" onclick="switchTab('logs-tab')">📜 Logs</button>
 				<button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Settings</button>
 			</div>
-			<!-- 🔓 INSTANT ACCESS PURGE BUTTON -->
-			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()" style="color: var(--danger-red); font-weight: bold; margin-bottom: -2px;">🚪 Logout</button>
+			<!-- 🔓 INSTANT ACCESS PURGE BUTTON (Hidden by default unless auth is enabled) -->
+			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()" style="display: none; color: var(--danger-red); font-weight: bold; margin-bottom: -2px;">🚪 Logout</button>
 		</div>
 
 		<!-- TAB 1: Monitored Feeds List -->
@@ -210,18 +210,19 @@
 			if (data.global) {
 				if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
 
-				// Isolate the newly added authentication elements
+				// 🚪 DYNAMIC LOGOUT BUTTON INTERCEPTOR
+				const logoutBtn = document.querySelector('.logout-btn');
+				if (logoutBtn) {
+					if (data.global.auth_enabled === "1") {
+						logoutBtn.style.setProperty('display', 'inline-block', 'important');
+					} else {
+						logoutBtn.style.setProperty('display', 'none', 'important');
+					}
+				}
+
+				// Existing security toggle structures continue downstream smoothly
 				const authCheckbox = document.getElementById('auth_enabled');
 				const authWrapper = document.getElementById('auth_credentials_wrapper');
-
-				if (authCheckbox && authWrapper) {
-					const isAuth = data.global.auth_enabled === "1";
-					authCheckbox.checked = isAuth;
-					authWrapper.style.display = isAuth ? 'block' : 'none';
-
-					if (data.global.auth_username) document.getElementById('auth_username').value = data.global.auth_username;
-					if (data.global.auth_password) document.getElementById('auth_password').value = data.global.auth_password;
-				}
 			}
 
 			if (data.global && data.global.base_dir) {
@@ -250,60 +251,54 @@
 				}
 			}
 
-			const tbody = document.querySelector('#seriesTable tbody');
-			tbody.innerHTML = '';
+            const tbody = document.querySelector('#seriesTable tbody');
+            tbody.innerHTML = ''; // Clear stale dashboard display matrices
+            
+            if (!data.series || Object.keys(data.series).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
+                return;
+            }
 
-			const currentTime = parseInt(data.global.current_time || Math.floor(Date.now() / 1000));
-			const THREE_WEEKS_SECONDS = 21 * 24 * 60 * 60;
+            // 🔤 ALPHABETICAL SORTING ENGINE: Convert the series object into a sorted array
+            const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
+                const nameA = (a[1].name || a[0]).toLowerCase();
+                const nameB = (b[1].name || b[0]).toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
 
-			Object.keys(data.series).forEach(id => {
-				const sData = data.series[id];
-				const lastUpdateTime = parseInt(sData.last_update || 0);
+            // Iterate over your freshly sorted alphabetical array map to paint rows cleanly
+            sortedSeriesEntries.forEach(([id, sData]) => {
+                const cleanName = sData.name.replace(/'/g, "\\'");
+                const cleanUrl = sData.url.replace(/'/g, "\\'");
+                const cleanPath = sData.path.replace(/'/g, "\\'");
+                
+                // Calculate display metrics strings
+                const episodes = sData.downloaded_episodes || [];
+                const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
+                const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
 
-				let badgeText = 'IDLE';
-				let badgeColor = '#6c757d'; // Default tracking gray
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="mobile-hide">
+                        <span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
+                    </td>
+                    <td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+                        <span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
+                    </td>
+                    <td class="mobile-hide"><code>${sData.path}</code></td>
+                    <td>
+                        <button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
+                        <button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
 
-				// Check if history tracking arrays contain parsed elements
-				if (sData.downloaded_episodes && sData.downloaded_episodes.length > 0) {
-					// Extract the highest episode integer value safely
-					const epNumbers = sData.downloaded_episodes.map(Number);
-					const latestEpisode = Math.max(...epNumbers);
-					badgeText = `EP ${latestEpisode}`;
-
-					// Style aging: Blue if complete/stale (>3 weeks), Green if active
-					if (lastUpdateTime > 0 && (currentTime - lastUpdateTime) > THREE_WEEKS_SECONDS) {
-						badgeColor = '#0070f3'; // Complete Blue
-					} else {
-						badgeColor = '#28a745'; // Active Green
-					}
-				}
-
-				const cleanName = sData.name.replace(/['"]/g, '\\$&');
-				const cleanUrl = sData.url.replace(/['"]/g, '\\$&');
-				const cleanPath = sData.path.replace(/['"]/g, '\\$&');
-
-				const row = document.createElement('tr');
-				row.innerHTML = `
-					<td class="mobile-hide">
-						<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
-					</td>
-					<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
-						<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
-					</td>
-					<td class="mobile-hide"><code>${sData.path}</code></td>
-					<td>
-						<button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
-						<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
-					</td>
-				`;
-				tbody.appendChild(row);
-
-				// Applies the dynamic badging colors to the mobile CSS pseudo-elements
-				document.querySelectorAll('.responsive-name-cell').forEach(cell => {
-					const color = cell.getAttribute('data-badge-color');
-					cell.style.setProperty('--badge-bg', color);
-				});
-			});
+            // Apply specific badge backgrounds to mobile flex pseudo-elements layout tags
+            document.querySelectorAll('.responsive-name-cell').forEach(cell => {
+                const color = cell.getAttribute('data-badge-color');
+                cell.style.setProperty('--badge-bg', color);
+            });
 		};
 
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
@@ -509,17 +504,17 @@
 			}
 		});
 
-        // Toggle input masking field mechanics between password and text types
-        const toggleFieldVisibility = (fieldId, element) => {
-            const field = document.getElementById(fieldId);
-            if (field.type === "password") {
-                field.type = "text";
-                element.innerText = "🙈";
-            } else {
-                field.type = "password";
-                element.innerText = "👁️";
-            }
-        };
+		// Toggle input masking field mechanics between password and text types
+		const toggleFieldVisibility = (fieldId, element) => {
+			const field = document.getElementById(fieldId);
+			if (field.type === "password") {
+				field.type = "text";
+				element.innerText = "🙈";
+			} else {
+				field.type = "password";
+				element.innerText = "👁️";
+			}
+		};
 	</script>
 </body>
 </html>
