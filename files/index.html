@@ -1,435 +1,525 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Media Downloader</title>
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#28a745">
-    <link rel="icon" type="image/png" href="/app-icon.png">
-    <!-- Links to the clean standalone global styles -->
-    <link rel="stylesheet" href="/style.css">
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Media Downloader</title>
+	<link rel="manifest" href="/manifest.json">
+	<meta name="theme-color" content="#28a745">
+	<link rel="icon" type="image/png" href="/app-icon.png">
+	<!-- Links to the clean standalone global styles -->
+	<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>
-            <img src="/app-icon.png" width="32" height="32" style="vertical-align: middle;"> 
-            <span id="mainTitle">Media Downloader</span>
-        </h1>
+	<div class="container">
+		<h1>
+			<img src="/app-icon.png" width="32" height="32" style="vertical-align: middle;">
+			<p id="mainTitle">Media Downloader</p>
+		</h1>
 
-        <div class="tab-nav">
-            <button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Feeds</button>
-            <button class="tab-btn" onclick="switchTab('logs-tab')">📜 Logs</button> <!-- Added -->
-            <button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Settings</button>
-        </div>
+		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
+			<div style="display: flex; gap: 8px;">
+				<button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Feeds</button>
+				<button class="tab-btn" onclick="switchTab('logs-tab')">📜 Logs</button>
+				<button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Settings</button>
+			</div>
+			<!-- 🔓 INSTANT ACCESS PURGE BUTTON -->
+			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()" style="color: var(--danger-red); font-weight: bold; margin-bottom: -2px;">🚪 Logout</button>
+		</div>
 
-        <!-- TAB 1: Monitored Feeds List -->
-        <div id="feeds-tab" class="tab-content active">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h2>Active Sync Feeds</h2>
-                <button class="success-btn" onclick="openAddSeriesModal()" style="width:auto; padding: 8px 14px; font-size: 0.9rem;">➕ Add Series</button>
-            </div>
-            <div class="table-responsive">
-                <table id="seriesTable">
-                    <thead>
-                        <tr>
-                            <th class="mobile-hide">Latest</th>
-                            <th>Name</th>
-                            <th class="mobile-hide">Path</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="btn-group" style="margin-top: 20px;">
-                <button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')">🔍 Scan Storage Paths</button>
-                <button type="button" class="success-btn" onclick="triggerAction('/api/download')">📥 Sync Updates Now</button>
-            </div>
-        </div>
+		<!-- TAB 1: Monitored Feeds List -->
+		<div id="feeds-tab" class="tab-content active">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+				<h2>Active Sync Feeds</h2>
+				<button class="success-btn" onclick="openAddSeriesModal()" style="width:auto; padding: 8px 14px; font-size: 0.9rem;">➕ Add Series</button>
+			</div>
+			<div class="table-responsive">
+				<table id="seriesTable">
+					<thead>
+						<tr>
+							<th class="mobile-hide">Latest</th>
+							<th>Name</th>
+							<th class="mobile-hide">Path</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+				</table>
+			</div>
+			<div class="btn-group" style="margin-top: 20px;">
+				<button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')">🔍 Scan Storage Paths</button>
+				<button type="button" class="success-btn" onclick="triggerAction('/api/download')">📥 Sync Updates Now</button>
+			</div>
+		</div>
 
-        <!-- TAB 2: Live Activity Logs Terminal View -->
-        <div id="logs-tab" class="tab-content">
-            <h2>System Activity Log</h2>
-            <div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
-            <div class="log-actions">
-                <button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
-            </div>
-			<div id="globalProgressWrapper" style="display:none; margin-bottom:15px; padding:10px; background:#f8f9fa; border-radius:5px; border-left:4px solid #28a745;">
-				<div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem;">
-					<span id="progressTaskName">Downloading...</span>
-					<span id="progressTaskPercent">0%</span>
+		<!-- TAB 2: Live Activity Logs Terminal View -->
+		<div id="logs-tab" class="tab-content">
+			<h2>System Activity Log</h2>
+			<div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
+			<div class="log-actions">
+				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
+			</div>
+			<div id="logProgressWrapper" style="display:none; margin-bottom:15px; padding:12px; background:#1e1e1e; color:#fff; border-radius:6px; border-left:4px solid #28a745;">
+				<div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem; font-family:monospace;">
+					<span id="logProgressTaskName">📥 Initializing network stream...</span>
+					<span id="logProgressTaskPercent" style="color:#28a745; font-weight:bold;">0%</span>
 				</div>
-				<div style="width:100%; background:#e9ecef; height:8px; border-radius:4px; overflow:hidden;">
-					<div id="globalProgressBar" style="width:0%; background:#28a745; height:100%; transition:width 0.2s ease;"></div>
+				<div style="width:100%; background:#333; height:8px; border-radius:4px; overflow:hidden;">
+					<div id="logProgressBar" style="width:0%; background:#28a745; height:100%; transition:width 0.3s ease;"></div>
 				</div>
 			</div>
-        </div>
+		</div>
 
-        <!-- TAB 3: Program Configuration Panel -->
-        <div id="settings-tab" class="tab-content">
+		<!-- TAB 3: Program Configuration Panel -->
+		<div id="settings-tab" class="tab-content">
 
-            <h2>System Application Settings</h2>
-            <form id="configForm">
-		        <div id="storagePanel" class="storage-panel" style="display: none;">
-	                <div class="form-group">
-	                    <label>Default Base Directory:</label>
-	                    <input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
-	                </div>
-		            <div class="storage-text">
-		                <span>💽 Disk Storage</span>
-		                <span id="storageStats">0 GB / 0 GB Free (0%)</span>
-		            </div>
-		            <div class="progress-container">
-		                <div id="storageBar" class="progress-bar"></div>
-		            </div>
-		        </div>
-                <div style="margin-top: 20px;">
-                    <button type="submit" class="success-btn">💾 Save Base Configuration</button>
-                </div>
-            </form>
-        </div>
-    </div>
+			<h2>System Application Settings</h2>
+			<form id="configForm">
+				<div id="storagePanel" class="storage-panel">
+					<div class="form-group">
+						<label>Default Base Directory:</label>
+						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
+					</div>
 
-    <!-- MODAL 1: Add New Series overlay overlay box window layout -->
-    <div id="addSeriesModal" class="modal-overlay">
-        <div class="modal-card">
-            <h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
-            <form id="seriesForm">
-                <div class="form-group">
-                    <label>Series Name:</label>
-                    <input type="text" id="name" required placeholder="Summer Vacation (2026)">
-                </div>
-                <div class="form-group">
-                    <label>Source URL:</label>
-                    <input type="text" id="url" required placeholder="https://thenkiri.com...">
-                </div>
-                <div class="form-group">
-                    <label>Destination Path (Auto-generates):</label>
-                    <input type="text" id="path" required placeholder="Will auto-fill based on name...">
-                </div>
-                <div class="modal-buttons">
-                    <button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
-                    <button type="submit" class="success-btn">💾 Save Series</button>
-                </div>
-            </form>
-        </div>
-    </div>
+					<!-- 🔐 LIVE USERNAME & PASSWORD AUTHENTICATION CONFIGURATION CARD -->
+					<div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--light-border);">
+						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
+							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
+							<span>Enable Dashboard Access Security Portal</span>
+						</label>
+					</div>
 
-    <!-- MODAL 2: Uniform interactive confirmations framework window container -->
-    <div id="customModal" class="modal-overlay">
-        <div class="modal-card">
-            <h3 id="modalTitle">Confirmation Required</h3>
-            <p id="modalMessage">Are you sure you want to perform this action?</p>
-            <div class="modal-buttons">
-                <button id="modalCancelBtn" class="secondary-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Cancel</button>
-                <button id="modalConfirmBtn" class="remove-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Confirm</button>
-            </div>
-        </div>
-    </div>
+					<div id="auth_credentials_wrapper" style="display: none; background: #ffffff; padding: 15px; border: 1px solid var(--light-border); border-radius: 6px; margin-top: 12px; margin-bottom: 15px;">
+						<div class="form-group">
+							<label>Configured Web Username:</label>
+							<input type="text" id="auth_username" placeholder="e.g. admin" style="background: #fff; color: #333;">
+						</div>
+						<div class="form-group" style="margin-bottom: 0;">
+							<label>Configured Access Password:</label>
+							<div style="position: relative; display: flex; align-items: center;">
+								<input type="password" id="auth_password" placeholder="Enter secure interface password" style="background: #fff; color: #333; padding-right: 45px; margin-bottom: 0;">
+								<span onclick="toggleFieldVisibility('auth_password', this)" style="position: absolute; right: 12px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: var(--secondary-gray); user-select: none;">👁️</span>
+							</div>
+						</div>
+					</div>
 
-    <div id="customToast" class="toast-notification">Task dispatched...</div>
+					<div class="storage-text" style="margin-top: 20px;">
+						<span>💽 Disk Storage</span>
+						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
+					</div>
+					<div class="progress-container">
+						<div id="storageBar" class="progress-bar"></div>
+					</div>
+				</div>
+				<div style="margin-top: 20px;">
+					<button type="submit" class="success-btn">💾 Save Base Configuration</button>
+				</div>
+			</form>
+		</div>
+	</div>
 
-    <script>
-        const nameInput = document.getElementById('name');
-        const baseDirInput = document.getElementById('base_dir');
-        const pathInput = document.getElementById('path');
+	<!-- MODAL 1: Add New Series overlay overlay box window layout -->
+	<div id="addSeriesModal" class="modal-overlay">
+		<div class="modal-card">
+			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
+			<form id="seriesForm">
+				<div class="form-group">
+					<label>Series Name:</label>
+					<input type="text" id="name" required placeholder="Summer Vacation (2026)">
+				</div>
+				<div class="form-group">
+					<label>Source URL:</label>
+					<input type="text" id="url" required placeholder="https://thenkiri.com...">
+				</div>
+				<div class="form-group">
+					<label>Destination Path (Auto-generates):</label>
+					<input type="text" id="path" required placeholder="Will auto-fill based on name...">
+				</div>
+				<div class="modal-buttons">
+					<button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
+					<button type="submit" class="success-btn">💾 Save Series</button>
+				</div>
+			</form>
+		</div>
+	</div>
 
-        const updateDestinationPath = () => {
-            const base = baseDirInput.value.trim().replace(/\/+$/, '');
-            const name = nameInput.value.trim();
-            if (base && name) {
-                pathInput.value = `${base}/${name}`;
-            }
-        };
+	<!-- MODAL 2: Uniform interactive confirmations framework window container -->
+	<div id="customModal" class="modal-overlay">
+		<div class="modal-card">
+			<h3 id="modalTitle">Confirmation Required</h3>
+			<p id="modalMessage">Are you sure you want to perform this action?</p>
+			<div class="modal-buttons">
+				<button id="modalCancelBtn" class="secondary-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Cancel</button>
+				<button id="modalConfirmBtn" class="remove-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Confirm</button>
+			</div>
+		</div>
+	</div>
 
-        nameInput.addEventListener('input', updateDestinationPath);
-        baseDirInput.addEventListener('input', updateDestinationPath);
+	<div id="customToast" class="toast-notification">Task dispatched...</div>
 
-        const showToast = (message, isSuccess = true) => {
-            const toast = document.getElementById('customToast');
-            toast.innerText = message;
-            toast.style.background = isSuccess ? '#28a745' : '#dc3545';
-            toast.classList.add('active');
-            setTimeout(() => toast.classList.remove('active'), 3000);
-        };
+	<script>
+		const nameInput = document.getElementById('name');
+		const baseDirInput = document.getElementById('base_dir');
+		const pathInput = document.getElementById('path');
 
-        const showConfirmModal = (title, message, onConfirm) => {
-            const modal = document.getElementById('customModal');
-            document.getElementById('modalTitle').innerText = title;
-            document.getElementById('modalMessage').innerText = message;
-            modal.classList.add('active');
-            
-            const confirmBtn = document.getElementById('modalConfirmBtn');
-            const cancelBtn = document.getElementById('modalCancelBtn');
-            const close = () => modal.classList.remove('active');
-            
-            confirmBtn.onclick = () => { onConfirm(); close(); };
-            cancelBtn.onclick = close;
-        };
+		const updateDestinationPath = () => {
+			const base = baseDirInput.value.trim().replace(/\/+$/, '');
+			const name = nameInput.value.trim();
+			if (base && name) {
+				pathInput.value = `${base}/${name}`;
+			}
+		};
 
-        const loadDashboardData = async () => {
-            const res = await fetch('/api/series');
-            const data = await res.json();
-            
-            if (data.global && data.global.base_dir) {
-                baseDirInput.value = data.global.base_dir;
-            }
+		nameInput.addEventListener('input', updateDestinationPath);
+		baseDirInput.addEventListener('input', updateDestinationPath);
 
-            // 📊 Calculate and update the dynamic storage disk bar metrics
-            if (data.global && data.global.storage_total && data.global.storage_free) {
-                const total = parseFloat(data.global.storage_total);
-                const free = parseFloat(data.global.storage_free);
-                const used = total - free;
-                const freePct = parseFloat(data.global.storage_free_pct);
-                const usedPct = 100 - freePct;
+		const showToast = (message, isSuccess = true) => {
+			const toast = document.getElementById('customToast');
+			toast.innerText = message;
+			toast.style.background = isSuccess ? '#28a745' : '#dc3545';
+			toast.classList.add('active');
+			setTimeout(() => toast.classList.remove('active'), 3000);
+		};
 
-                document.getElementById('storagePanel').style.display = 'block';
-                document.getElementById('storageStats').innerText = `${free.toFixed(1)} GB / ${total.toFixed(1)} GB Free (${freePct.toFixed(0)}%)`;
-                
-                const bar = document.getElementById('storageBar');
-                bar.style.width = `${usedPct}%`; // The filled portion represents used storage space
+		const showConfirmModal = (title, message, onConfirm) => {
+			const modal = document.getElementById('customModal');
+			document.getElementById('modalTitle').innerText = title;
+			document.getElementById('modalMessage').innerText = message;
+			modal.classList.add('active');
 
-                // Turn the bar red if space drops below a critical 10% boundary threshold
-                if (freePct < 10) {
-                    bar.classList.add('low-space');
-                } else {
-                    bar.classList.remove('low-space');
-                }
-            }
+			const confirmBtn = document.getElementById('modalConfirmBtn');
+			const cancelBtn = document.getElementById('modalCancelBtn');
+			const close = () => modal.classList.remove('active');
 
-            const tbody = document.querySelector('#seriesTable tbody');
-            tbody.innerHTML = '';
-            
-            const currentTime = parseInt(data.global.current_time || Math.floor(Date.now() / 1000));
-            const THREE_WEEKS_SECONDS = 21 * 24 * 60 * 60;
+			confirmBtn.onclick = () => { onConfirm(); close(); };
+			cancelBtn.onclick = close;
+		};
 
-            Object.keys(data.series).forEach(id => {
-                const sData = data.series[id];
-                const lastUpdateTime = parseInt(sData.last_update || 0);
-                
-                let badgeText = 'IDLE';
-                let badgeColor = '#6c757d'; // Default tracking gray
+		const authCheckbox = document.getElementById('auth_enabled');
+		const authWrapper = document.getElementById('auth_credentials_wrapper');
 
-                // Check if history tracking arrays contain parsed elements
-                if (sData.downloaded_episodes && sData.downloaded_episodes.length > 0) {
-                    // Extract the highest episode integer value safely
-                    const epNumbers = sData.downloaded_episodes.map(Number);
-                    const latestEpisode = Math.max(...epNumbers);
-                    badgeText = `EP ${latestEpisode}`;
-                    
-                    // Style aging: Blue if complete/stale (>3 weeks), Green if active
-                    if (lastUpdateTime > 0 && (currentTime - lastUpdateTime) > THREE_WEEKS_SECONDS) {
-                        badgeColor = '#0070f3'; // Complete Blue
-                    } else {
-                        badgeColor = '#28a745'; // Active Green
-                    }
-                }
-                
-                const cleanName = sData.name.replace(/['"]/g, '\\$&'); 
-                const cleanUrl = sData.url.replace(/['"]/g, '\\$&');
-                const cleanPath = sData.path.replace(/['"]/g, '\\$&');
+		authCheckbox.addEventListener('change', () => {
+			authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
+		});
 
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="mobile-hide">
-                        <span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
-                    </td>
-                    <td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
-                        <span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
-                    </td>
-                    <td class="mobile-hide"><code>${sData.path}</code></td>
-                    <td>
-                        <button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
-                        <button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
-                    </td>
-                `;
-                tbody.appendChild(row);
+		// 🔄 Ensure loadDashboardData maps your credentials into the newly visible inputs
+		const loadDashboardData = async () => {
+			const res = await fetch('/api/series');
+			const data = await res.json();
+
+			if (data.global) {
+				if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
+
+				// Isolate the newly added authentication elements
+				const authCheckbox = document.getElementById('auth_enabled');
+				const authWrapper = document.getElementById('auth_credentials_wrapper');
+
+				if (authCheckbox && authWrapper) {
+					const isAuth = data.global.auth_enabled === "1";
+					authCheckbox.checked = isAuth;
+					authWrapper.style.display = isAuth ? 'block' : 'none';
+
+					if (data.global.auth_username) document.getElementById('auth_username').value = data.global.auth_username;
+					if (data.global.auth_password) document.getElementById('auth_password').value = data.global.auth_password;
+				}
+			}
+
+			if (data.global && data.global.base_dir) {
+				baseDirInput.value = data.global.base_dir;
+			}
+
+			// 📊 Calculate and update the dynamic storage disk bar metrics
+			if (data.global && data.global.storage_total && data.global.storage_free) {
+				const total = parseFloat(data.global.storage_total);
+				const free = parseFloat(data.global.storage_free);
+				const used = total - free;
+				const freePct = parseFloat(data.global.storage_free_pct);
+				const usedPct = 100 - freePct;
+
+				document.getElementById('storagePanel').style.display = 'block';
+				document.getElementById('storageStats').innerText = `${free.toFixed(1)} GB / ${total.toFixed(1)} GB Free (${freePct.toFixed(0)}%)`;
+
+				const bar = document.getElementById('storageBar');
+				bar.style.width = `${usedPct}%`; // The filled portion represents used storage space
+
+				// Turn the bar red if space drops below a critical 10% boundary threshold
+				if (freePct < 10) {
+					bar.classList.add('low-space');
+				} else {
+					bar.classList.remove('low-space');
+				}
+			}
+
+			const tbody = document.querySelector('#seriesTable tbody');
+			tbody.innerHTML = '';
+
+			const currentTime = parseInt(data.global.current_time || Math.floor(Date.now() / 1000));
+			const THREE_WEEKS_SECONDS = 21 * 24 * 60 * 60;
+
+			Object.keys(data.series).forEach(id => {
+				const sData = data.series[id];
+				const lastUpdateTime = parseInt(sData.last_update || 0);
+
+				let badgeText = 'IDLE';
+				let badgeColor = '#6c757d'; // Default tracking gray
+
+				// Check if history tracking arrays contain parsed elements
+				if (sData.downloaded_episodes && sData.downloaded_episodes.length > 0) {
+					// Extract the highest episode integer value safely
+					const epNumbers = sData.downloaded_episodes.map(Number);
+					const latestEpisode = Math.max(...epNumbers);
+					badgeText = `EP ${latestEpisode}`;
+
+					// Style aging: Blue if complete/stale (>3 weeks), Green if active
+					if (lastUpdateTime > 0 && (currentTime - lastUpdateTime) > THREE_WEEKS_SECONDS) {
+						badgeColor = '#0070f3'; // Complete Blue
+					} else {
+						badgeColor = '#28a745'; // Active Green
+					}
+				}
+
+				const cleanName = sData.name.replace(/['"]/g, '\\$&');
+				const cleanUrl = sData.url.replace(/['"]/g, '\\$&');
+				const cleanPath = sData.path.replace(/['"]/g, '\\$&');
+
+				const row = document.createElement('tr');
+				row.innerHTML = `
+					<td class="mobile-hide">
+						<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
+					</td>
+					<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+						<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
+					</td>
+					<td class="mobile-hide"><code>${sData.path}</code></td>
+					<td>
+						<button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
+						<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
+					</td>
+				`;
+				tbody.appendChild(row);
 
 				// Applies the dynamic badging colors to the mobile CSS pseudo-elements
 				document.querySelectorAll('.responsive-name-cell').forEach(cell => {
 					const color = cell.getAttribute('data-badge-color');
 					cell.style.setProperty('--badge-bg', color);
 				});
-            });
-        };
+			});
+		};
 
-        document.getElementById('seriesForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const name = nameInput.value.trim();
-            // If editing, preserve the original configurations ID mapping; if adding from scratch, derive it dynamically
-            const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z]/g, '');
-            
-            if (!targetId) {
-                showToast('Series Name must contain alphabetic characters!', false);
-                return;
+		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+
+			const name = nameInput.value.trim();
+			// If editing, preserve the original configurations ID mapping; if adding from scratch, derive it dynamically
+			const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z]/g, '');
+
+			if (!targetId) {
+				showToast('Series Name must contain alphabetic characters!', false);
+				return;
+			}
+
+			await fetch(`/api/series/${targetId}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					base_dir: baseDirInput.value.trim(),
+					name: name,
+					url: document.getElementById('url').value.trim(),
+					path: pathInput.value.trim()
+				})
+			});
+
+			const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
+			closeAddSeriesModal();
+			showToast(successMsg);
+			await loadDashboardData();
+		});
+
+		document.getElementById('configForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+
+			const authCheckbox = document.getElementById('auth_enabled');
+
+			await fetch('/api/series/_config', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					base_dir: baseDirInput.value.trim(),
+					auth_enabled: authCheckbox.checked ? "1" : "0",
+					auth_username: document.getElementById('auth_username').value.trim(),
+					auth_password: document.getElementById('auth_password').value.trim()
+				})
+			});
+
+			showToast('System application configuration saved successfully.');
+			await loadDashboardData();
+		});
+
+		const deleteSeries = async (id, friendlyName) => {
+			showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
+				await fetch(`/api/series/${id}`, { method: 'DELETE' });
+				await loadDashboardData();
+				showToast('Series deleted successfully.');
+			});
+		};
+
+		const triggerAction = async (endpoint) => {
+			showToast('Processing request engine cycle...');
+			await fetch(endpoint, { method: 'POST' });
+
+			const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
+			if (logTabButton) {
+				// Clear any running background polling interval first
+				clearInterval(logInterval);
+
+				// Remove active styling from all tabs
+				document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+				document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
+
+				// Activate the logs window view layout panels
+				document.getElementById('logs-tab').classList.add('active');
+				logTabButton.classList.add('active');
+
+				// Fetch baseline logs immediately
+				await fetchEngineLogs();
+
+				// 🔄 Set up a live auto-monitoring polling loop
+				logInterval = setInterval(async () => {
+					await fetchEngineLogs();
+
+					const terminalText = document.getElementById('logTerminal').innerText;
+
+					// 🎯 Check if the backend worker threads have logged their completion keywords
+					const cycleFinished = terminalText.includes("loop finalized.") ||
+										  terminalText.includes("sync complete.");
+
+					if (cycleFinished) {
+						clearInterval(logInterval); // Halt log polling to reduce router CPU strain
+						showToast('Sync process complete! Updating feed records...');
+
+						// 🚀 CRITICAL REFRESH: Repaint the active feeds table rows with new storage updates!
+						await loadDashboardData();
+					}
+				}, 3000);
+			}
+		};
+
+		const openAddSeriesModal = () => {
+			editModeId = null; // Clear out edit tracking context
+			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
+			document.getElementById('seriesForm').reset();
+			updateDestinationPath();
+			document.getElementById('addSeriesModal').classList.add('active');
+		};
+
+		const openEditSeriesModal = (id, name, url, path) => {
+			editModeId = id; // Lock in the specific ID block we are editing
+			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${name}`;
+
+			// Populate form fields with active configuration states
+			document.getElementById('name').value = name;
+			document.getElementById('url').value = url;
+			document.getElementById('path').value = path;
+
+			document.getElementById('addSeriesModal').classList.add('active');
+		};
+
+		const closeAddSeriesModal = () => {
+			editModeId = null;
+			document.getElementById('seriesForm').reset();
+			document.getElementById('addSeriesModal').classList.remove('active');
+		};
+
+		window.onload = loadDashboardData;
+
+		let logInterval = null; // 👈 Add this tracking handle at the top of your script block
+
+		const fetchEngineLogs = async () => {
+			try {
+				// 1. Fetch text logs from the engine
+				const res = await fetch('/api/logs');
+				const logs = await res.json();
+				const terminal = document.getElementById('logTerminal');
+
+				if (logs.length === 0) {
+					terminal.innerText = "No logged actions registered yet.";
+				} else {
+					terminal.innerText = logs.join('\n');
+					terminal.scrollTop = terminal.scrollHeight; // Auto-scrolls console
+				}
+
+				// 2. 📊 Fetch active binary stream progress states from Python memory
+				const progRes = await fetch('/api/progress');
+				const activeJobs = await progRes.json();
+				const wrapper = document.getElementById('logProgressWrapper');
+
+				const downloadingShows = Object.keys(activeJobs);
+				if (downloadingShows.length === 0) {
+					wrapper.style.display = 'none'; // Keep container invisible if idle
+					return;
+				}
+
+				// Track and render the first active item in the job dictionary array
+				const activeShowKey = downloadingShows[0];
+				const currentJob = activeJobs[activeShowKey];
+
+				wrapper.style.display = 'block';
+				document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
+				document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
+				document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
+
+			} catch (err) {
+				console.error("Engine logs or progress metrics retrieval failure:", err);
+			}
+		};
+
+		const switchTab = (tabId) => {
+			document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+			document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
+
+			document.getElementById(tabId).classList.add('active');
+			event.currentTarget.classList.add('active');
+
+			// Clear any active polling loops when leaving the logs tab to save router CPU
+			clearInterval(logInterval);
+
+			if (tabId === 'logs-tab') {
+				fetchEngineLogs();
+				// 🔄 Set up a live background polling loop to pull fresh logs every 3 seconds
+				logInterval = setInterval(fetchEngineLogs, 3000);
+			}
+		};
+
+		const triggerSessionLogout = () => {
+			showConfirmModal(
+				'🔒 Really Log Out?',
+				'Are you sure you want to log out of the dashboard?',
+				() => {
+					// Force a top-level location change directly to the logout api to clean cookie states
+					window.location.href = '/api/logout';
+				}
+			);
+		};
+
+		// Self-driving UI visibility toggles
+		document.body.addEventListener('change', (e) => {
+			if (e.target && e.target.id === 'auth_enabled') {
+				const wrapper = document.getElementById('auth_credentials_wrapper');
+				if (wrapper) wrapper.style.display = e.target.checked ? 'block' : 'none';
+			}
+		});
+
+        // Toggle input masking field mechanics between password and text types
+        const toggleFieldVisibility = (fieldId, element) => {
+            const field = document.getElementById(fieldId);
+            if (field.type === "password") {
+                field.type = "text";
+                element.innerText = "🙈";
+            } else {
+                field.type = "password";
+                element.innerText = "👁️";
             }
-
-            await fetch(`/api/series/${targetId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    base_dir: baseDirInput.value.trim(),
-                    name: name, 
-                    url: document.getElementById('url').value.trim(), 
-                    path: pathInput.value.trim() 
-                })
-            });
-            
-            const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
-            closeAddSeriesModal();
-            showToast(successMsg);
-            await loadDashboardData();
-        });
-
-        document.getElementById('configForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await fetch('/api/series/_config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    base_dir: baseDirInput.value.trim()
-                })
-            });
-            showToast('Base configurations saved to router.');
-            await loadDashboardData();
-        });
-
-        const deleteSeries = async (id, friendlyName) => { 
-            showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
-                await fetch(`/api/series/${id}`, { method: 'DELETE' }); 
-                await loadDashboardData();
-                showToast('Series deleted successfully.');
-            });
         };
-
-        const triggerAction = async (endpoint) => { 
-            showToast('Processing request engine cycle...'); 
-            await fetch(endpoint, { method: 'POST' }); 
-            
-            const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
-            if (logTabButton) {
-                // Clear any running background polling interval first
-                clearInterval(logInterval);
-                
-                // Remove active styling from all tabs
-                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
-                
-                // Activate the logs window view layout panels
-                document.getElementById('logs-tab').classList.add('active');
-                logTabButton.classList.add('active');
-                
-                // Fetch baseline logs immediately
-                await fetchEngineLogs();
-                
-                // 🔄 Set up a live auto-monitoring polling loop
-                logInterval = setInterval(async () => {
-                    await fetchEngineLogs();
-                    
-                    const terminalText = document.getElementById('logTerminal').innerText;
-                    
-                    // 🎯 Check if the backend worker threads have logged their completion keywords
-                    const cycleFinished = terminalText.includes("loop finalized.") || 
-                                          terminalText.includes("sync complete.");
-                    
-                    if (cycleFinished) {
-                        clearInterval(logInterval); // Halt log polling to reduce router CPU strain
-                        showToast('Sync process complete! Updating feed records...');
-                        
-                        // 🚀 CRITICAL REFRESH: Repaint the active feeds table rows with new storage updates!
-                        await loadDashboardData();
-                    }
-                }, 3000);
-            }
-        };
-
-        const openAddSeriesModal = () => {
-            editModeId = null; // Clear out edit tracking context
-            document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
-            document.getElementById('seriesForm').reset();
-            updateDestinationPath();
-            document.getElementById('addSeriesModal').classList.add('active');
-        };
-
-        const openEditSeriesModal = (id, name, url, path) => {
-            editModeId = id; // Lock in the specific ID block we are editing
-            document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${name}`;
-            
-            // Populate form fields with active configuration states
-            document.getElementById('name').value = name;
-            document.getElementById('url').value = url;
-            document.getElementById('path').value = path;
-            
-            document.getElementById('addSeriesModal').classList.add('active');
-        };
-
-        const closeAddSeriesModal = () => {
-            editModeId = null;
-            document.getElementById('seriesForm').reset();
-            document.getElementById('addSeriesModal').classList.remove('active');
-        };
-
-        window.onload = loadDashboardData;
-
-        let logInterval = null; // 👈 Add this tracking handle at the top of your script block
-
-        const fetchEngineLogs = async () => {
-            try {
-                // 1. Fetch text logs from the engine
-                const res = await fetch('/api/logs');
-                const logs = await res.json();
-                const terminal = document.getElementById('logTerminal');
-                
-                if (logs.length === 0) {
-                    terminal.innerText = "No logged actions registered yet.";
-                } else {
-                    terminal.innerText = logs.join('\n');
-                    terminal.scrollTop = terminal.scrollHeight; // Auto-scrolls console
-                }
-
-                // 2. 📊 Fetch active binary stream progress states from Python memory
-                const progRes = await fetch('/api/progress');
-                const activeJobs = await progRes.json();
-                const wrapper = document.getElementById('logProgressWrapper');
-                
-                const downloadingShows = Object.keys(activeJobs);
-                if (downloadingShows.length === 0) {
-                    wrapper.style.display = 'none'; // Keep container invisible if idle
-                    return;
-                }
-                
-                // Track and render the first active item in the job dictionary array
-                const activeShowKey = downloadingShows[0];
-                const currentJob = activeJobs[activeShowKey];
-                
-                wrapper.style.display = 'block';
-                document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
-                document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
-                document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
-
-            } catch (err) {
-                console.error("Engine logs or progress metrics retrieval failure:", err);
-            }
-        };
-
-        const switchTab = (tabId) => {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
-            
-            document.getElementById(tabId).classList.add('active');
-            event.currentTarget.classList.add('active');
-            
-            // Clear any active polling loops when leaving the logs tab to save router CPU
-            clearInterval(logInterval);
-            
-            if (tabId === 'logs-tab') {
-                fetchEngineLogs();
-                // 🔄 Set up a live background polling loop to pull fresh logs every 3 seconds
-                logInterval = setInterval(fetchEngineLogs, 3000);
-            }
-        };
-    </script>
+	</script>
 </body>
 </html>

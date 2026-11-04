@@ -368,22 +368,25 @@ button {
         display: none !important;
     }
 
-    /* Enforce rigid 2-column tabular matrix behavior layout maps */
+    /* Enforce rigid 2-column tabular mapping behavior layout maps */
     table, thead, tbody {
         display: table !important;
         width: 100% !important;
     }
 
-    tr {
+    /* 📏 RESTORE MOBILE ROW LINES: Force borders onto the row elements themselves */
+    #seriesTable tr {
         display: table-row !important;
+        border-bottom: 1px solid var(--light-border) !important;
     }
     
     #seriesTable th, 
     #seriesTable td {
         display: table-cell !important;
-        padding: 12px 8px !important;
+        padding: 14px 8px !important;
         vertical-align: middle !important;
-        border-bottom: 1px solid var(--light-border) !important;
+        /* Clean up duplicate cell line rules to let the row border rule rule the layout */
+        border-bottom: none !important; 
     }
 
     /* Clamp the Actions cell container width to prevent floating layout drift */
@@ -433,4 +436,120 @@ button {
         background-color: var(--badge-bg, #6c757d) !important;
         white-space: nowrap !important;
     }
+
+    /* Ensure the tab navbar remains a single responsive row on small devices */
+    .tab-nav {
+        gap: 4px !important;
+    }
+    
+    .tab-btn {
+        padding: 8px 10px !important;
+        font-size: 0.88rem !important;
+    }
+    
+    .logout-btn {
+        padding: 8px 6px !important;
+    }
+}
+
+/* ==========================================================================
+   8. 🔒 SECURE APPLICATION LOGIN CONTAINER GRAPHICS
+   ========================================================================== */
+.login-body {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 100vh !important;
+    padding: 15px !important;
+}
+
+.login-card {
+    background: #ffffff;
+    padding: 35px 30px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--light-border);
+}
+
+.login-card h2 {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 4px !important;
+    text-align: center !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-bottom: 25px;
+}
+
+.login-card h2 img {
+    margin-bottom: 10px;
+}
+
+.login-card h2 .brand-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text-main);
+    line-height: 1.2;
+}
+
+.login-card h2 .brand-subtitle {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.login-card .form-group {
+    margin-bottom: 18px;
+}
+
+.login-card label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #495057;
+    font-size: 0.9rem;
+}
+
+.login-card input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    font-size: 1rem;
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.15s ease;
+}
+
+.login-card input:focus {
+    border-color: var(--primary-success);
+}
+
+.login-card button {
+    width: 100%;
+    background: var(--primary-success);
+    color: #ffffff;
+    border: none;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 10px;
+}
+
+.login-card button:hover {
+    background: var(--primary-success-hover);
+}
+
+.logout-btn:hover {
+    color: var(--danger-red-hover) !important;
+    background-color: #fff0f1 !important;
+    border-bottom: 2px solid var(--danger-red) !important;
+    border-radius: 6px 6px 0 0;
 }
