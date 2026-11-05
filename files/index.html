@@ -29,10 +29,6 @@
 
 		<!-- TAB 1: Monitored Feeds List -->
 		<div id="feeds-tab" class="tab-content active">
-			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-				<h2>Active Sync Feeds</h2>
-				<button class="success-btn" onclick="openAddSeriesModal()" style="width:auto; padding: 8px 14px; font-size: 0.9rem;">➕ Add Series</button>
-			</div>
 			<div class="table-responsive">
 				<table id="seriesTable">
 					<thead>
@@ -46,19 +42,18 @@
 					<tbody></tbody>
 				</table>
 			</div>
-			<div class="btn-group" style="margin-top: 20px;">
-				<button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')">🔍 Scan Storage Paths</button>
-				<button type="button" class="success-btn" onclick="triggerAction('/api/download')">📥 Sync Updates Now</button>
+			<div class="btn-group" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; gap: 10px; width: 100%;">
+				<div style="display: flex; gap: 8px;">
+					<button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')" style="margin: 0; width: auto;">🔍 Scan Storage Paths</button>
+					<button type="button" class="success-btn" onclick="triggerAction('/api/download')" style="margin: 0; width: auto;">📥 Sync Updates Now</button>
+				</div>
+				<button class="success-btn" onclick="openAddSeriesModal()" style="width: auto; padding: 8px 14px; font-size: 0.9rem; margin: 0;">➕ Add Series</button>
 			</div>
 		</div>
 
 		<!-- TAB 2: Live Activity Logs Terminal View -->
 		<div id="logs-tab" class="tab-content">
-			<h2>System Activity Log</h2>
-			<div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
-			<div class="log-actions">
-				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
-			</div>
+			<!-- 📥 STATUS CAPTURE SHIELD: Renders cleanly at the top when active -->
 			<div id="logProgressWrapper" style="display:none; margin-bottom:15px; padding:12px; background:#1e1e1e; color:#fff; border-radius:6px; border-left:4px solid #28a745;">
 				<div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem; font-family:monospace;">
 					<span id="logProgressTaskName">📥 Initializing network stream...</span>
@@ -68,12 +63,19 @@
 					<div id="logProgressBar" style="width:0%; background:#28a745; height:100%; transition:width 0.3s ease;"></div>
 				</div>
 			</div>
+
+			<!-- Live scrolling runtime diagnostic terminal window -->
+			<div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
+			
+			<!-- Bottom-aligned global utility controls bar -->
+			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
+				<button type="button" class="secondary-btn remove-btn" onclick="triggerClearLogsAction()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Logs</button>
+			</div>
 		</div>
 
 		<!-- TAB 3: Program Configuration Panel -->
 		<div id="settings-tab" class="tab-content">
-
-			<h2>System Application Settings</h2>
 			<form id="configForm">
 				<div id="storagePanel" class="storage-panel">
 					<div class="form-group">
@@ -81,15 +83,22 @@
 						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
 					</div>
 
-					<!-- 🔐 LIVE USERNAME & PASSWORD AUTHENTICATION CONFIGURATION CARD -->
-					<div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--light-border);">
+					<div class="storage-text" style="margin-top: 20px;">
+						<span>💽 Disk Storage</span>
+						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
+					</div>
+					<div class="progress-container">
+						<div id="storageBar" class="progress-bar"></div>
+					</div>
+				</div>
+				<div id="storagePanel" class="storage-panel">
+					<div class="form-group">
 						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
 							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
 							<span>Enable Dashboard Access Security Portal</span>
 						</label>
 					</div>
-
-					<div id="auth_credentials_wrapper" style="display: none; background: #ffffff; padding: 15px; border: 1px solid var(--light-border); border-radius: 6px; margin-top: 12px; margin-bottom: 15px;">
+					<div id="auth_credentials_wrapper" style="display: none;">
 						<div class="form-group">
 							<label>Configured Web Username:</label>
 							<input type="text" id="auth_username" placeholder="e.g. admin" style="background: #fff; color: #333;">
@@ -101,14 +110,6 @@
 								<span onclick="toggleFieldVisibility('auth_password', this)" style="position: absolute; right: 12px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: var(--secondary-gray); user-select: none;">👁️</span>
 							</div>
 						</div>
-					</div>
-
-					<div class="storage-text" style="margin-top: 20px;">
-						<span>💽 Disk Storage</span>
-						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
-					</div>
-					<div class="progress-container">
-						<div id="storageBar" class="progress-bar"></div>
 					</div>
 				</div>
 				<div style="margin-top: 20px;">
@@ -161,6 +162,15 @@
 		const nameInput = document.getElementById('name');
 		const baseDirInput = document.getElementById('base_dir');
 		const pathInput = document.getElementById('path');
+		let logInterval = null;
+
+		// 🛡️ GLOBAL SAFETY GUARD: Ensures only ONE background polling instance can exist
+		const clearActivePolling = () => {
+			if (logInterval !== null) {
+				clearInterval(logInterval);
+				logInterval = null;
+			}
+		};
 
 		const updateDestinationPath = () => {
 			const base = baseDirInput.value.trim().replace(/\/+$/, '');
@@ -251,65 +261,69 @@
 				}
 			}
 
-            const tbody = document.querySelector('#seriesTable tbody');
-            tbody.innerHTML = ''; // Clear stale dashboard display matrices
-            
-            if (!data.series || Object.keys(data.series).length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
-                return;
-            }
+			const tbody = document.querySelector('#seriesTable tbody');
+			tbody.innerHTML = ''; // Clear stale dashboard display matrices
 
-            // 🔤 ALPHABETICAL SORTING ENGINE: Convert the series object into a sorted array
-            const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
-                const nameA = (a[1].name || a[0]).toLowerCase();
-                const nameB = (b[1].name || b[0]).toLowerCase();
-                return nameA.localeCompare(nameB);
-            });
+			if (!data.series || Object.keys(data.series).length === 0) {
+				tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
+				return;
+			}
 
-            // Iterate over your freshly sorted alphabetical array map to paint rows cleanly
-            sortedSeriesEntries.forEach(([id, sData]) => {
-                const cleanName = sData.name.replace(/'/g, "\\'");
-                const cleanUrl = sData.url.replace(/'/g, "\\'");
-                const cleanPath = sData.path.replace(/'/g, "\\'");
-                
-                // Calculate display metrics strings
-                const episodes = sData.downloaded_episodes || [];
-                const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
-                const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
+			// 🔤 ALPHABETICAL SORTING ENGINE: Convert the series object into a sorted array
+			const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
+				const nameA = (a[1].name || a[0]).toLowerCase();
+				const nameB = (b[1].name || b[0]).toLowerCase();
+				return nameA.localeCompare(nameB);
+			});
 
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="mobile-hide">
-                        <span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
-                    </td>
-                    <td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
-                        <span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
-                    </td>
-                    <td class="mobile-hide"><code>${sData.path}</code></td>
-                    <td>
-                        <button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
-                        <button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
+			// Iterate over your freshly sorted alphabetical array map to paint rows cleanly
+			sortedSeriesEntries.forEach(([id, sData]) => {
+				const cleanName = sData.name.replace(/'/g, "\\'");
+				const cleanUrl = sData.url.replace(/'/g, "\\'");
+				const cleanPath = sData.path.replace(/'/g, "\\'");
 
-            // Apply specific badge backgrounds to mobile flex pseudo-elements layout tags
-            document.querySelectorAll('.responsive-name-cell').forEach(cell => {
-                const color = cell.getAttribute('data-badge-color');
-                cell.style.setProperty('--badge-bg', color);
-            });
+				// Calculate display metrics strings
+				const episodes = sData.downloaded_episodes || [];
+				const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
+				const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
+
+				const row = document.createElement('tr');
+				row.innerHTML = `
+					<td class="mobile-hide">
+						<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
+					</td>
+					<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+						<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
+					</td>
+					<td class="mobile-hide"><code>${sData.path}</code></td>
+					<td>
+						<button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
+						<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
+					</td>
+				`;
+				tbody.appendChild(row);
+			});
+
+			// Apply specific badge backgrounds to mobile flex pseudo-elements layout tags
+			document.querySelectorAll('.responsive-name-cell').forEach(cell => {
+				const color = cell.getAttribute('data-badge-color');
+				cell.style.setProperty('--badge-bg', color);
+			});
 		};
 
+		// 2. Update your series registration formula to match the router's allowed character matrix
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
-
 			const name = nameInput.value.trim();
-			// If editing, preserve the original configurations ID mapping; if adding from scratch, derive it dynamically
-			const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z]/g, '');
 
-			if (!targetId) {
-				showToast('Series Name must contain alphabetic characters!', false);
+			// Generates valid, clean url-safe paths (e.g. "Summer Vacation (2026)" -> "summer-vacation-2026")
+			const targetId = editModeId ? editModeId : name.toLowerCase()
+				.replace(/[^a-z0-9\s-]/g, '')
+				.trim()
+				.replace(/[\s-]+/g, '-');
+
+			if (!targetId || targetId === '-') {
+				showToast('Series Name must contain valid letters or numbers!', false);
 				return;
 			}
 
@@ -317,16 +331,14 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					base_dir: baseDirInput.value.trim(),
 					name: name,
 					url: document.getElementById('url').value.trim(),
 					path: pathInput.value.trim()
 				})
 			});
 
-			const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
 			closeAddSeriesModal();
-			showToast(successMsg);
+			showToast(editModeId ? 'Configuration updated.' : 'Feed registered.');
 			await loadDashboardData();
 		});
 
@@ -378,22 +390,36 @@
 				// Fetch baseline logs immediately
 				await fetchEngineLogs();
 
-				// 🔄 Set up a live auto-monitoring polling loop
+				// 🔄 Spawn the status monitor loop safely
 				logInterval = setInterval(async () => {
-					await fetchEngineLogs();
-
+					// 1. Force a live pull of text logs AND active download speeds simultaneously
+					await fetchEngineLogs(); 
+					
 					const terminalText = document.getElementById('logTerminal').innerText;
+					const lines = terminalText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+					
+					let latestToken = null;
+					let isLatestDone = false;
 
-					// 🎯 Check if the backend worker threads have logged their completion keywords
-					const cycleFinished = terminalText.includes("loop finalized.") ||
-										  terminalText.includes("sync complete.");
+					for (let i = lines.length - 1; i >= 0; i--) {
+						if (lines[i].includes("Starting scheduled web crawling sequence cycle...")) {
+							const tokenMatch = lines[i].match(/\[(CYCLE-SIG-\d+)\]/);
+							if (tokenMatch) { latestToken = tokenMatch[1]; break; }
+						}
+					}
 
-					if (cycleFinished) {
-						clearInterval(logInterval); // Halt log polling to reduce router CPU strain
+					if (latestToken) {
+						isLatestDone = terminalText.includes(`Scheduled sync parsing operation loop finalized. [${latestToken}]`);
+					}
+
+					if (isLatestDone) {
+						clearActivePolling(); 
 						showToast('Sync process complete! Updating feed records...');
-
-						// 🚀 CRITICAL REFRESH: Repaint the active feeds table rows with new storage updates!
-						await loadDashboardData();
+						
+						// Ensure progress wrapper container hides itself cleanly when everything finishes
+						document.getElementById('logProgressWrapper').style.display = 'none';
+						
+						await loadDashboardData(); 
 					}
 				}, 3000);
 			}
@@ -426,8 +452,6 @@
 		};
 
 		window.onload = loadDashboardData;
-
-		let logInterval = null; // 👈 Add this tracking handle at the top of your script block
 
 		const fetchEngineLogs = async () => {
 			try {
@@ -475,12 +499,12 @@
 			document.getElementById(tabId).classList.add('active');
 			event.currentTarget.classList.add('active');
 
-			// Clear any active polling loops when leaving the logs tab to save router CPU
-			clearInterval(logInterval);
+			// Safe eviction of any running background polling interval
+			clearActivePolling();
 
 			if (tabId === 'logs-tab') {
 				fetchEngineLogs();
-				// 🔄 Set up a live background polling loop to pull fresh logs every 3 seconds
+				// Securely instantiate the live log terminal listener
 				logInterval = setInterval(fetchEngineLogs, 3000);
 			}
 		};
@@ -514,6 +538,19 @@
 				field.type = "password";
 				element.innerText = "👁️";
 			}
+		};
+
+		// Log Purge Dispatch Action
+		const triggerClearLogsAction = async () => {
+			showConfirmModal(
+				'🗑️ Clear Activity Log?',
+				'Are you sure you want to permanently erase the current runtime log terminal buffer?',
+				async () => {
+					showToast('Clearing system log memory...');
+					await fetch('/api/logs/clear', { method: 'POST' });
+					await fetchEngineLogs(); // Immediately pull back the freshly cleared baseline statement
+				}
+			);
 		};
 	</script>
 </body>

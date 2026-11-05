@@ -21,6 +21,11 @@ LOG_BUFFER = []
 LOG_MAX_LINES = 150
 log_lock = threading.Lock()
 
+def check_ffmpeg_available():
+	"""Dynamically probe the host OS to see if FFmpeg is installed in the PATH"""
+	import shutil
+	return shutil.whoami() if hasattr(shutil, 'whoami') else shutil.which("ffmpeg") is not None
+
 def log_message(msg):
 	timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 	formatted_msg = f"[{timestamp}] {msg}"
@@ -194,11 +199,56 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		standardized_name = f"{clean_series_name} - {s_str}{e_str}{file_ext}"
 		dest_path = os.path.join(dest_folder, standardized_name)
 
-		log_message(f"Normalized download target layout: '{standardized_name}'")
-		log_message(f"Spawning live curl process pipe with progress tracking...")
+		standardized_name = f"{clean_series_name} - {s_str}{e_str}{file_ext}"
+		dest_path = os.path.join(dest_folder, standardized_name)
 
-		# 🚀 Step 3: Run curl with the '-#' flag to produce a simple text-based progress bar
-		# We redirect stderr to a pipe so Python can read the progress output lines
+		log_message(f"Normalized download target layout: '{standardized_name}'")
+
+		# =====================================================================
+		# 🔀 NEW CHIEF ROUTING VALVE: Intercept HLS Playlists before calling curl
+		# =====================================================================
+		if ".m3u8" in url:
+			if check_ffmpeg_available():
+				log_message(f"[{series_name}] HLS playlist target identified. Spawning native FFmpeg multiplexer...")
+				ffmpeg_cmd = [
+					"ffmpeg", "-y", "-i", url,
+					"-c", "copy",  # Direct copy stream format ensures your NAS CPU stays flat
+					"-bsf:a", "aac_adtstoasc",
+					dest_path
+				]
+
+				process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+				# Keep your web interface alive by sending mock intermediate progress signals
+				with progress_lock:
+					ACTIVE_DOWNLOADS[series_name] = {
+						"episode": ep_num,
+						"pct": 50,  # Multiplexers can't easily guess time limits, so we pass a working flag
+						"filename": standardized_name
+					}
+
+				process.wait()
+
+				with progress_lock:
+					if series_name in ACTIVE_DOWNLOADS:
+						del ACTIVE_DOWNLOADS[series_name]
+
+				if process.returncode == 0 and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024 * 100:
+					log_message(f"HLS multiplex transaction complete: saved to {dest_path}")
+					return True
+				else:
+					log_message(f"FFmpeg pipeline exited with critical fault code: {process.returncode}")
+					if os.path.exists(dest_path):
+						os.remove(dest_path)
+					return False
+			else:
+				log_message(f"[{series_name}] Error: Endpoint requires HLS stream parsing, but FFmpeg is not installed on this host environment.")
+				return False
+
+		# =====================================================================
+		# 🚀 Step 3 (Original): Fall back to standard direct file download loop
+		# =====================================================================
+		log_message(f"Spawning live curl process pipe with progress tracking...")
 		curl_cmd = [
 			"curl", "-#", "-L",
 			"-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -213,31 +263,38 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		# Spawn the process asynchronously so we can capture lines on the fly
 		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-		# 📊 Step 4: Stream-reading loop to parse curl progress lines
-		# curl -# outputs carriage returns (\r) with a growing string of hash marks or percentage updates
+		# Spawn the process asynchronously 
+		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+		# =====================================================================
+		# 📊 STEP 4: Bulletproof \r-Aware Progress Scraper
+		# =====================================================================
+		buffer = ""
 		while True:
-			# Read characters up to the next carriage return or newline
-			char = process.stderr.read(1)
-			if not char:
-				break
-
-			# If curl outputs a progress marker line, collect it
-			line_buffer = ""
-			while char and char not in ['\r', '\n']:
-				line_buffer += char
-				char = process.stderr.read(1)
-
-			# Parse percentages if found inside the curl output text line
-			# curl's standard text output bar format looks like: "## 25.4%" or similar variations
-			pct_match = re.search(r'(\d+(?:\.\d+)?)\s*%', line_buffer)
-			if pct_match:
-				pct_val = int(float(pct_match.group(1)))
-				with progress_lock:
-					ACTIVE_DOWNLOADS[series_name] = {
-						"episode": ep_num,
-						"pct": pct_val,
-						"filename": standardized_name
-					}
+			# Read small character chunks dynamically from the stream
+			chunk = process.stderr.read(10)
+			if not chunk and process.poll() is not None:
+				break # Exit cleanly when curl exits execution
+			
+			buffer += chunk
+			
+			# Curl updates lines using carriage returns (\r), so split by \r
+			if '\r' in buffer:
+				lines = buffer.split('\r')
+				# Process all complete status updates, save the last partial chunk
+				buffer = lines[-1]
+				
+				for status_line in lines[:-1]:
+					# Look for percentage updates (e.g., "## 45.2%")
+					pct_match = re.search(r'(\d+(?:\.\d+)?)\s*%', status_line)
+					if pct_match:
+						pct_val = int(float(pct_match.group(1)))
+						with progress_lock:
+							ACTIVE_DOWNLOADS[series_name] = {
+								"episode": ep_num,
+								"pct": pct_val,
+								"filename": standardized_name
+							}
 
 		# Block until process execution finishes completely
 		process.wait()
@@ -260,7 +317,10 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		return False
 
 def run_downloader_cycle():
-	log_message("Starting scheduled web crawling sequence cycle...")
+	# Generate a short, unique runtime signature string based on the exact clock ticks
+	cycle_token = f"CYCLE-SIG-{int(time.time())}"
+
+	log_message(f"Starting scheduled web crawling sequence cycle... [{cycle_token}]")
 	scan_existing_episodes()
 	config = read_uci_config()
 
@@ -323,11 +383,24 @@ def run_downloader_cycle():
 				if not re.search(r'ep|episode|s\d+|down', clean_text_lower):
 					continue
 
-				ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if int(n) != 1 and int(n) != 2 and int(n) != 2025 and int(n) != 2026]
-				# 🔄 Fallback: If no episode number was in the text link, check ONLY the filename layout string!
+				# =====================================================================
+				# 🎯 FIXED EPISODE PARSER: Targets numbers associated with episode markers
+				# =====================================================================
+				# =====================================================================
+				# 🎯 BOUNDS-CHECKED EPISODE PARSER: Discards numbers above 150 (like years)
+				# =====================================================================
+				# 1. Look for explicit prefixes first (e.g., ep1, e_05, episode 12)
+				ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
+
+				# 2. Fallback: If no explicit prefix was found, grab standalone numbers but enforce the <= 150 rule
+				if not ep_numbers:
+					ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
+
+				# 3. Secondary Fallback: If link text yields nothing, parse the direct landing URL string
 				if not ep_numbers:
 					filename_only = url_lower.split('/')[-1]
-					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', filename_only) if int(n) != 1 and int(n) != 2 and int(n) != 2025 and int(n) != 2026]
+					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', filename_only) if int(n) <= 150]
+
 				if not ep_numbers:
 					continue
 
@@ -376,10 +449,32 @@ def run_downloader_cycle():
 								if media_match:
 									final_download_url = media_match.group(1)
 
+						# Inside your sub-html extraction section within run_downloader_cycle:
 						if not final_download_url:
+							# 🎯 TARGET MECHANIC: Decode unpacked packer-style scripts (frequently used by Vidhide/StreamWish)
+							packed_match = re.search(r"eval\(function\(p,a,c,k,e,.*?\.split\('\|'\)\)\)", sub_html)
+							if packed_match:
+								log_message(f"[{s_id}] Obfuscated packer code encountered. Running client-side string extraction...")
+								# Unpack the layout mapping table arrays
+								try:
+									vars_match = re.search(r"\}\('(.*?)'\.split\('\|'\)\)", sub_html)
+									if vars_match:
+										word_dictionary = vars_match.group(1).split('|')
+										# Look for standard high definition video delivery paths hidden inside the map array
+										hls_segment = next((w for w in word_dictionary if "master" in w or "index" in w or "m3u8" in w), None)
+										cdn_host = next((w for w in word_dictionary if "delivery" in w or "storage" in w or "cdn" in w), None)
+
+										if hls_segment and cdn_host:
+											# Dynamically piece together the asset delivery URL location
+											final_download_url = f"https://{cdn_host}.com/hls/{hls_segment}.m3u8"
+								except Exception as decrypt_err:
+									log_message(f"Decryption extractor failure: {decrypt_err}")
+
+						if not final_download_url:
+							# Fallback back into your direct .mp4/.mkv file lookup array safely (Note the explicit [0] index fix)
 							direct_links = re.findall(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', sub_html)
 							if direct_links:
-								final_download_url = direct_links
+								final_download_url = direct_links[0]
 
 						if final_download_url:
 							log_message(f"[{s_id}] True binary stream path resolved! Fetching Ep {ep_num}...")
@@ -395,7 +490,7 @@ def run_downloader_cycle():
 		except Exception as e:
 			log_message(f"[{s_id}] Main engine execution exception crash: {e}")
 
-	log_message("Scheduled sync parsing operation loop finalized.")
+	log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
 
 class RouterHTTPHandler(BaseHTTPRequestHandler):
 	def is_authenticated(self):
@@ -451,7 +546,6 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				<h2>
 					<img src="/app-icon.png" width="128" height="128" style="display: block;">
 					<span class="brand-title">Media Downloader</span>
-					<span class="brand-subtitle">Login</span>
 				</h2>
 				{error_div}
 				<form action="/login" method="POST">
@@ -620,6 +714,17 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.end_headers()
 			return
 
+		if self.path == '/api/logs/clear':
+			with log_lock:
+				LOG_BUFFER.clear()
+				LOG_BUFFER.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] System Activity Log cleared by administrator.")
+
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+			return
+
 		if self.path.startswith('/api/series/'):
 			s_id = self.path.split('/')[-1]
 			content_length = int(self.headers['Content-Length'])
@@ -643,19 +748,31 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 				return
 
-			if not re.match(r'^[a-z]+$', s_id):
+			# This allows numbers, hyphens, and underscores in the tracking profile names
+			if not re.match(r'^[a-z0-9_-]+$', s_id):
 				self.send_response(400)
 				self.end_headers()
 				return
+
+			# 🛡️ FIX: Added the clean bracket array properly to prevent SyntaxErrors
 			if s_id not in config["series"]:
 				config["series"][s_id] = {"downloaded_episodes": [], "last_update": "0"}
-			config["series"][s_id].update({"name": data.get("name"), "url": data.get("url"), "path": data.get("path")})
+
+			# Safely overlay modified parameters without destroying existing historical data records
+			config["series"][s_id].update({
+				"name": data.get("name"),
+				"url": data.get("url"),
+				"path": data.get("path")
+			})
 			write_uci_config(config)
 			log_message(f"Saved tracking profile registration section: {data.get('name')}")
+
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+			return
+
 		elif self.path == '/api/scan':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
