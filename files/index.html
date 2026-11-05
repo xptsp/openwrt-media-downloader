@@ -66,7 +66,7 @@
 
 			<!-- Live scrolling runtime diagnostic terminal window -->
 			<div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
-			
+
 			<!-- Bottom-aligned global utility controls bar -->
 			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
 				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
@@ -98,7 +98,7 @@
 							<span>Enable Dashboard Access Security Portal</span>
 						</label>
 					</div>
-					<div id="auth_credentials_wrapper" style="display: none;">
+					<div id="auth_credentials_wrapper" style="display: none; background: #ffffff; padding: 15px; border: 1px solid var(--light-border); border-radius: 6px; margin-top: 12px; margin-bottom: 15px;">
 						<div class="form-group">
 							<label>Configured Web Username:</label>
 							<input type="text" id="auth_username" placeholder="e.g. admin" style="background: #fff; color: #333;">
@@ -136,6 +136,13 @@
 					<label>Destination Path (Auto-generates):</label>
 					<input type="text" id="path" required placeholder="Will auto-fill based on name...">
 				</div>
+				<div id="modalEpisodesWrapper" class="form-group" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--light-border);">
+					<label style="font-weight: bold; margin-bottom: 8px; display: block;">Managed Downloaded Episodes:</label>
+					<div id="modalEpisodesChecklist" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(75px, 1fr)); gap: 8px; max-height: 120px; overflow-y: auto; background: #f8f9fa; padding: 10px; border: 1px solid var(--light-border); border-radius: 6px;">
+						<!-- Dynamic checkboxes generate here -->
+					</div>
+					<small style="color: var(--secondary-gray); display: block; margin-top: 6px;">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
+				</div>
 				<div class="modal-buttons">
 					<button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
 					<button type="submit" class="success-btn">💾 Save Series</button>
@@ -163,6 +170,7 @@
 		const baseDirInput = document.getElementById('base_dir');
 		const pathInput = document.getElementById('path');
 		let logInterval = null;
+		let currentDashboardData = null;
 
 		// 🛡️ GLOBAL SAFETY GUARD: Ensures only ONE background polling instance can exist
 		const clearActivePolling = () => {
@@ -216,6 +224,8 @@
 		const loadDashboardData = async () => {
 			const res = await fetch('/api/series');
 			const data = await res.json();
+
+			currentDashboardData = data;
 
 			if (data.global) {
 				if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
@@ -297,7 +307,7 @@
 					</td>
 					<td class="mobile-hide"><code>${sData.path}</code></td>
 					<td>
-						<button class="action-btn edit" onclick="openEditSeriesModal('${id}', '${cleanName}', '${cleanUrl}', '${cleanPath}')">Edit</button>
+						<button class="action-btn edit" onclick="openEditSeriesModal('${id}')">Edit</button>
 						<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
 					</td>
 				`;
@@ -316,15 +326,21 @@
 			e.preventDefault();
 			const name = nameInput.value.trim();
 
-			// Generates valid, clean url-safe paths (e.g. "Summer Vacation (2026)" -> "summer-vacation-2026")
 			const targetId = editModeId ? editModeId : name.toLowerCase()
 				.replace(/[^a-z0-9\s-]/g, '')
 				.trim()
 				.replace(/[\s-]+/g, '-');
 
 			if (!targetId || targetId === '-') {
-				showToast('Series Name must contain valid letters or numbers!', false);
+				showToast('Series Name must contain valid alphanumeric characters!', false);
 				return;
+			}
+
+			// Gather the surviving checked episode array values
+			let activeEpisodes = [];
+			if (editModeId) {
+				const checkedBoxes = document.querySelectorAll('input[name="modal_episodes"]:checked');
+				activeEpisodes = Array.from(checkedBoxes).map(cb => cb.value);
 			}
 
 			await fetch(`/api/series/${targetId}`, {
@@ -333,12 +349,14 @@
 				body: JSON.stringify({
 					name: name,
 					url: document.getElementById('url').value.trim(),
-					path: pathInput.value.trim()
+					path: pathInput.value.trim(),
+					downloaded_episodes: activeEpisodes // 📡 Pass up the user modified records
 				})
 			});
 
+			const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
 			closeAddSeriesModal();
-			showToast(editModeId ? 'Configuration updated.' : 'Feed registered.');
+			showToast(successMsg);
 			await loadDashboardData();
 		});
 
@@ -393,11 +411,11 @@
 				// 🔄 Spawn the status monitor loop safely
 				logInterval = setInterval(async () => {
 					// 1. Force a live pull of text logs AND active download speeds simultaneously
-					await fetchEngineLogs(); 
-					
+					await fetchEngineLogs();
+
 					const terminalText = document.getElementById('logTerminal').innerText;
 					const lines = terminalText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-					
+
 					let latestToken = null;
 					let isLatestDone = false;
 
@@ -413,13 +431,13 @@
 					}
 
 					if (isLatestDone) {
-						clearActivePolling(); 
+						clearActivePolling();
 						showToast('Sync process complete! Updating feed records...');
-						
+
 						// Ensure progress wrapper container hides itself cleanly when everything finishes
 						document.getElementById('logProgressWrapper').style.display = 'none';
-						
-						await loadDashboardData(); 
+
+						await loadDashboardData();
 					}
 				}, 3000);
 			}
@@ -429,18 +447,47 @@
 			editModeId = null; // Clear out edit tracking context
 			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
 			document.getElementById('seriesForm').reset();
+
+			// 🧼 SAFETY RESET: Evict stale checkboxes and hide the container instantly
+			document.getElementById('modalEpisodesChecklist').innerHTML = '';
+			document.getElementById('modalEpisodesWrapper').style.display = 'none';
+
 			updateDestinationPath();
 			document.getElementById('addSeriesModal').classList.add('active');
 		};
 
-		const openEditSeriesModal = (id, name, url, path) => {
-			editModeId = id; // Lock in the specific ID block we are editing
-			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${name}`;
+		// 🛠️ UPGRADED: Accepts only the unique ID and looks up data dynamically
+		const openEditSeriesModal = (id) => {
+			editModeId = id;
 
-			// Populate form fields with active configuration states
-			document.getElementById('name').value = name;
-			document.getElementById('url').value = url;
-			document.getElementById('path').value = path;
+			// Reference the current text fields directly from the active series map
+			const sData = currentDashboardData.series[id];
+			if (!sData) return;
+
+			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${sData.name || id}`;
+
+			// Map attributes straight into the input fields safely
+			document.getElementById('name').value = sData.name || '';
+			document.getElementById('url').value = sData.url || '';
+			document.getElementById('path').value = sData.path || '';
+
+			// Handle Episode Tracking Array Displays
+			const checklistContainer = document.getElementById('modalEpisodesChecklist');
+			const wrapper = document.getElementById('modalEpisodesWrapper');
+			checklistContainer.innerHTML = ''; // Wipe stale rows clean
+
+			const episodes = sData.downloaded_episodes || [];
+			if (episodes && episodes.length > 0) {
+				wrapper.style.display = 'block';
+				episodes.forEach(ep => {
+					const label = document.createElement('label');
+					label.style.cssText = "display: flex; align-items: center; gap: 4px; font-family: monospace; font-size: 0.9rem; cursor: pointer; background: #fff; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; user-select: none;";
+					label.innerHTML = `<input type="checkbox" name="modal_episodes" value="${ep}" checked style="width:auto; margin:0; cursor:pointer;"> <span>EP ${ep.padStart(2, '0')}</span>`;
+					checklistContainer.appendChild(label);
+				});
+			} else {
+				wrapper.style.display = 'none';
+			}
 
 			document.getElementById('addSeriesModal').classList.add('active');
 		};
@@ -448,6 +495,11 @@
 		const closeAddSeriesModal = () => {
 			editModeId = null;
 			document.getElementById('seriesForm').reset();
+
+			// 🧼 SAFETY RESET: Wipe checkboxes clear on modal closure
+			document.getElementById('modalEpisodesChecklist').innerHTML = '';
+			document.getElementById('modalEpisodesWrapper').style.display = 'none';
+
 			document.getElementById('addSeriesModal').classList.remove('active');
 		};
 

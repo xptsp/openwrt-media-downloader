@@ -263,7 +263,7 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		# Spawn the process asynchronously so we can capture lines on the fly
 		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-		# Spawn the process asynchronously 
+		# Spawn the process asynchronously
 		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 		# =====================================================================
@@ -275,15 +275,15 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 			chunk = process.stderr.read(10)
 			if not chunk and process.poll() is not None:
 				break # Exit cleanly when curl exits execution
-			
+
 			buffer += chunk
-			
+
 			# Curl updates lines using carriage returns (\r), so split by \r
 			if '\r' in buffer:
 				lines = buffer.split('\r')
 				# Process all complete status updates, save the last partial chunk
 				buffer = lines[-1]
-				
+
 				for status_line in lines[:-1]:
 					# Look for percentage updates (e.g., "## 45.2%")
 					pct_match = re.search(r'(\d+(?:\.\d+)?)\s*%', status_line)
@@ -758,14 +758,66 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			if s_id not in config["series"]:
 				config["series"][s_id] = {"downloaded_episodes": [], "last_update": "0"}
 
-			# Safely overlay modified parameters without destroying existing historical data records
+			if s_id not in config["series"]:
+				config["series"][s_id] = {"downloaded_episodes": [], "last_update": "0"}
+
+			# Capture current/historical state before applying updates to check for unchecked episodes
+			existing_eps = set(config["series"][s_id].get("downloaded_episodes", []))
+			series_folder_path = data.get("path", config["series"][s_id].get("path", ""))
+			series_friendly_name = data.get("name", config["series"][s_id].get("name", s_id))
+
+			# Safely map user text parameter updates
 			config["series"][s_id].update({
-				"name": data.get("name"),
+				"name": series_friendly_name,
 				"url": data.get("url"),
-				"path": data.get("path")
+				"path": series_folder_path
 			})
+
+			# 📋 THE PHYSICAL FILE PURGE SYSTEM
+			if "downloaded_episodes" in data:
+				# Convert submitted numbers into standardized integers
+				submitted_eps = set(str(int(x)) for x in data.get("downloaded_episodes", []))
+
+				# 🎯 ISOLATE THE PRUNED TARGETS: What was in the database, but is now missing from the checkboxes?
+				pruned_eps = existing_eps - submitted_eps
+
+				if pruned_eps and os.path.exists(series_folder_path):
+					for ep_to_delete in pruned_eps:
+						log_message(f"[{s_id}] Pruning trigger activated. Evicting Episode {ep_to_delete} from storage drive...")
+
+						# Standardize the file lookup layout targets (e.g., E02 or Ep 2)
+						# This ensures we catch your standardised files safely
+						s_str = f"E{int(ep_to_delete):02d}"
+
+						try:
+							for filename in os.listdir(series_folder_path):
+								filename_lower = filename.lower()
+
+								# Check if the filename explicitly matches this exact episode signature
+								# e.g., "The Remarried Empress - S01E01.mkv"
+								is_target_file = (s_str.lower() in filename_lower) or \
+												 (f"ep{ep_to_delete}" in filename_lower.replace(" ", "")) or \
+												 (f"episode{ep_to_delete}" in filename_lower.replace(" ", ""))
+
+								if is_target_file:
+									full_target_file_path = os.path.join(series_folder_path, filename)
+									if os.path.exists(full_target_file_path):
+										# 🪓 UPGRADED: Handle directories (.trickplay) and single files (.nfo / .mkv) recursively
+										if os.path.isdir(full_target_file_path):
+											import shutil
+											shutil.rmtree(full_target_file_path)
+											log_message(f"[{s_id}] Successfully wiped physical directory cache: {filename}")
+										else:
+											os.remove(full_target_file_path)
+											log_message(f"[{s_id}] Successfully deleted physical file asset: {filename}")
+						except Exception as disk_err:
+							log_message(f"[{s_id}] File eviction system filesystem alert: {disk_err}")
+
+				# Save the filtered surviving data records back into the active tracking profile
+				config["series"][s_id]["downloaded_episodes"] = sorted(list(submitted_eps), key=int)
+
 			write_uci_config(config)
-			log_message(f"Saved tracking profile registration section: {data.get('name')}")
+			log_message(f"Saved tracking profile changes for section: {series_friendly_name}")
 
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
