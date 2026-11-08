@@ -10,6 +10,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
 import subprocess
+import queue
 
 ##############################################################################################
 # Variables
@@ -26,6 +27,18 @@ log_lock = threading.Lock()
 
 ACTIVE_SESSIONS = set()
 session_lock = threading.Lock()
+
+##############################################################################################
+# 🌐 GLOBAL BACKGROUND TASK QUEUE MATRIX
+##############################################################################################
+# Thread-safe queue containing dictionaries of tasks: {"series_id": ..., "episode": ..., "url": ..., "path": ...}
+DOWNLOAD_QUEUE = queue.Queue()
+
+# Shared dictionary to hold progress updates for the CGI frontend /api/progress endpoint
+ACTIVE_DOWNLOADS = {}
+
+# Thread lock to guarantee safe data mutations across parallel runtime loops
+PROGRESS_LOCK = threading.Lock()
 
 ##############################################################################################
 # Supporting functions
@@ -215,6 +228,61 @@ def scan_existing_episodes():
 		log_message("System filesystem state synchronized. Corrupted tracking keys successfully removed.")
 
 ##############################################################################################
+def background_download_worker():
+	"""Independent background loop thread runner that sequentially extracts items
+
+	from the thread-safe queue matrix and processes them using download_url_file.
+	"""
+	import time
+	global DOWNLOAD_QUEUE, PROGRESS_LOCK
+
+	log_message("[Queue Engine] Thread initialization matrix active. Background download worker standing by...")
+
+	while True:
+		try:
+			# Blocks indefinitely until an item becomes available in the queue buffer arrays
+			task = DOWNLOAD_QUEUE.get()
+			
+			s_id = task.get("series_id")
+			ep_num = task.get("episode")
+			download_url = task.get("url")
+			dest_folder = task.get("path") # Hand off target path variable components
+			series_name = task.get("series_name", s_id)
+			
+			log_message(f"[Queue Engine] Pulling task from buffer: Starting [{series_name}] Episode {ep_num}...")
+
+			# Execute your existing optimized downloader function directly inside this thread pipe
+			# Because this runs inside a background thread, the carriage-return parsing loop 
+			# updates ACTIVE_DOWNLOADS completely asynchronously while the UI stays 100% fluid!
+			success = download_url_file(download_url, os.path.dirname(dest_folder), series_name, ep_num)
+
+			if success:
+				# 💾 ASYNCHRONOUS DATABASE COMMITTAL
+				# Safely write the successful download records back to UCI configuration maps
+				try:
+					live_config = read_uci_config()
+					if s_id in live_config.get("series", {}):
+						live_downloaded = set(live_config["series"][s_id].get('downloaded_episodes', []))
+						live_downloaded.add(ep_num)
+						
+						live_config["series"][s_id]['downloaded_episodes'] = sorted(list(live_downloaded), key=int)
+						live_config["series"][s_id]['last_update'] = str(int(time.time()))
+						
+						write_uci_config(live_config)
+						log_message(f"[Queue Engine] Successfully committed Episode {ep_num} database tracking updates for '{series_name}'.")
+				except Exception as db_err:
+					log_message(f"[Queue Engine] Database record update hazard warning: {db_err}")
+			else:
+				log_message(f"[Queue Engine] Alert: Download pipeline failed or aborted for [{series_name}] Ep {ep_num}.")
+
+			# Tell the queue infrastructure that the task transaction processing phase is completely finished
+			DOWNLOAD_QUEUE.task_done()
+
+		except Exception as fatal_worker_err:
+			log_message(f"[Queue Engine] Critical error encountered inside thread management core: {fatal_worker_err}")
+			time.sleep(5) # Cooldown buffer to prevent aggressive log flooding if something goes haywire
+
+##############################################################################################
 def download_url_file(url, dest_folder, series_name, ep_num):
 	try:
 		os.makedirs(dest_folder, exist_ok=True)
@@ -385,11 +453,9 @@ def run_downloader_cycle():
 			with urllib.request.urlopen(req) as res:
 				html = res.read().decode('utf-8', errors='ignore')
 
-			# Diagnostic save hook to safely inspect raw data inputs
 			with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
 				df.write(html)
 
-			# Slice away sidebars if present
 			content_start = html.find('class="entry-content"')
 			if content_start != -1:
 				content_end = html.find('class="recommended"', content_start)
@@ -400,14 +466,10 @@ def run_downloader_cycle():
 				html = html[content_start:content_end] if content_end != -1 else html[content_start:]
 
 			links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
-
 			url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
 			series_slug = url_slug_match.group(1).strip() if url_slug_match else ""
 
-			# 🎯 PURE GENERIC KEYWORD EXTRACTOR: Isolates descriptive words dynamically
 			slug_words = [w for w in series_slug.split('-') if w not in ['s01', 's02', 'complete', 'korean', 'drama', 'series', 'tv', 'download']]
-
-			# DYNAMIC FALLBACK: Grab the last descriptive word, or fall back directly to the show's unique configuration ID
 			show_keyword = slug_words[-1] if slug_words else s_id
 
 			for episode_page_url, link_text in links_found:
@@ -415,11 +477,9 @@ def run_downloader_cycle():
 				clean_text_lower = clean_text.lower()
 				url_lower = episode_page_url.lower()
 
-				# 🛡️ SYSTEM FILTER: Instantly drop core web standard links, socials, and site feeds
 				if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/"]):
 					continue
 
-				# 🛡️ THE BRAND PROTECTION SHIELD: The link text OR the destination URL must match your unique show keyword
 				name_match = (show_keyword in clean_text_lower) or (show_keyword in url_lower)
 				if not name_match:
 					continue
@@ -428,16 +488,13 @@ def run_downloader_cycle():
 					continue
 
 				#======================================================================
-				# 🎯 BOUNDS-CHECKED EPISODE PARSER: Discards numbers above 150 (like years)
+				# 🎯 BOUNDS-CHECKED EPISODE PARSER
 				#======================================================================
-				# 1. Look for explicit prefixes first (e.g., ep1, e_05, episode 12)
 				ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
 
-				# 2. Fallback: If no explicit prefix was found, grab standalone numbers but enforce the <= 150 rule
 				if not ep_numbers:
 					ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
 
-				# 3. Secondary Fallback: If link text yields nothing, parse the direct landing URL string
 				if not ep_numbers:
 					filename_only = url_lower.split('/')[-1]
 					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', filename_only) if int(n) <= 150]
@@ -450,7 +507,7 @@ def run_downloader_cycle():
 
 					live_config = read_uci_config()
 					live_series_data = live_config["series"].get(s_id, {})
-					live_downloaded = set(live_series_data.get('downloaded_episodes',))
+					live_downloaded = set(live_series_data.get('downloaded_episodes', []))
 
 					if ep_num in live_downloaded:
 						continue
@@ -490,42 +547,46 @@ def run_downloader_cycle():
 								if media_match:
 									final_download_url = media_match.group(1)
 
-						# Inside your sub-html extraction section within run_downloader_cycle:
 						if not final_download_url:
-							# 🎯 TARGET MECHANIC: Decode unpacked packer-style scripts (frequently used by Vidhide/StreamWish)
 							packed_match = re.search(r"eval\(function\(p,a,c,k,e,.*?\.split\('\|'\)\)\)", sub_html)
 							if packed_match:
 								log_message(f"[{s_id}] Obfuscated packer code encountered. Running client-side string extraction...")
-								# Unpack the layout mapping table arrays
 								try:
 									vars_match = re.search(r"\}\('(.*?)'\.split\('\|'\)\)", sub_html)
 									if vars_match:
 										word_dictionary = vars_match.group(1).split('|')
-										# Look for standard high definition video delivery paths hidden inside the map array
 										hls_segment = next((w for w in word_dictionary if "master" in w or "index" in w or "m3u8" in w), None)
 										cdn_host = next((w for w in word_dictionary if "delivery" in w or "storage" in w or "cdn" in w), None)
 
 										if hls_segment and cdn_host:
-											# Dynamically piece together the asset delivery URL location
 											final_download_url = f"https://{cdn_host}.com/hls/{hls_segment}.m3u8"
 								except Exception as decrypt_err:
 									log_message(f"Decryption extractor failure: {decrypt_err}")
 
 						if not final_download_url:
-							# Fallback back into your direct .mp4/.mkv file lookup array safely (Note the explicit [0] index fix)
 							direct_links = re.findall(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', sub_html)
 							if direct_links:
 								final_download_url = direct_links[0]
 
 						if final_download_url:
-							log_message(f"[{s_id}] True binary stream path resolved! Fetching Ep {ep_num}...")
-							if download_url_file(final_download_url, dest_path, live_series_data.get('name', s_id), ep_num):
-								live_downloaded.add(ep_num)
-								live_series_data['downloaded_episodes'] = sorted(list(live_downloaded), key=int)
-								live_series_data['last_update'] = str(int(time.time()))
-								write_uci_config(live_config)
+							log_message(f"[{s_id}] Stream path resolved! Dispatching Ep {ep_num} to background queue...")
+							
+							# Calculate target localized storage elements cleanly
+							series_title = live_series_data.get('name', s_id)
+							sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
+							filename = f"{sanitized_title} - S01E{ep_num.zfill(2)}.mkv"
+							full_file_path = os.path.join(dest_path, filename)
+
+							# 🚀 NON-BLOCKING QUEUE DISPATCH
+							DOWNLOAD_QUEUE.put({
+								"series_id": s_id,
+								"episode": ep_num,
+								"url": final_download_url,
+								"path": full_file_path,
+								"series_name": series_title
+							})
 						else:
-							log_message(f"[{s_id}] Failed to automatically decrypt download tokens for Ep {ep_num}.")
+							log_message(f"[{s_id}] Failed to extract tokens for Ep {ep_num}.")
 					except Exception as sub_err:
 						log_message(f"[{s_id}] Error solving destination targets for ep {ep_num}: {sub_err}")
 		except Exception as e:
@@ -949,6 +1010,27 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 # Standalone script code to launch our app!
 ##############################################################################################
 if __name__ == '__main__':
+	# =====================================================================
+	# 🚀 BACKGROUND THREAD QUEUE INITIALIZATION BOOTLOADER
+	# =====================================================================
+	try:
+		# Instantiating the thread to target our background downloader function
+		queue_thread = threading.Thread(target=background_download_worker, name="DownloadQueueWorker")
+		
+		# 🛡️ Setting daemon=True ensures this thread terminates when the main server exits
+		queue_thread.daemon = True
+		
+		# Ignition: Spin up the background thread engine
+		queue_thread.start()
+		
+		log_message("[System Boot] Background download queue thread initialized and listening successfully.")
+		
+	except Exception as thread_boot_err:
+		log_message(f"[System Boot] Critical failure launching queue thread subsystem: {thread_boot_err}")
+
+	# =====================================================================
+	# 🚀 START WEB SERVER
+	# =====================================================================
 	log_message("Initializing System Core Media Downloader Runtime Environment...")
 	if len(sys.argv) > 1 and sys.argv[1] == '--cron':
 		run_downloader_cycle()
