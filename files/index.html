@@ -17,18 +17,19 @@
 			<p id="mainTitle">Media Downloader</p>
 		</h1>
 
+		<!-- Unified Hyperlink Navigation System Bar -->
 		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
 			<div style="display: flex; gap: 8px;">
-				<button class="tab-btn active" onclick="switchTab('feeds-tab')">📋 Feeds</button>
-				<button class="tab-btn" onclick="switchTab('logs-tab')">📜 Logs</button>
-				<button class="tab-btn" onclick="switchTab('settings-tab')">⚙️ Settings</button>
+				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
+				<a href="/feeds" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Feeds</a>
+				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
+				<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
 			</div>
-			<!-- 🔓 INSTANT ACCESS PURGE BUTTON (Hidden by default unless auth is enabled) -->
 			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()" style="display: none; color: var(--danger-red); font-weight: bold; margin-bottom: -2px;">🚪 Logout</button>
 		</div>
 
 		<!-- TAB 1: Monitored Feeds List -->
-		<div id="feeds-tab" class="tab-content active">
+		<div id="feeds-tab" class="tab-content">
 			<div class="table-responsive">
 				<table id="seriesTable">
 					<thead>
@@ -91,7 +92,7 @@
 						<div id="storageBar" class="progress-bar"></div>
 					</div>
 				</div>
-				<div id="storagePanel" class="storage-panel">
+				<div class="storage-panel">
 					<div class="form-group">
 						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
 							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
@@ -119,7 +120,7 @@
 		</div>
 	</div>
 
-	<!-- MODAL 1: Add New Series overlay overlay box window layout -->
+	<!-- MODAL 1: Add New Series overlay box window layout -->
 	<div id="addSeriesModal" class="modal-overlay">
 		<div class="modal-card">
 			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
@@ -166,13 +167,22 @@
 	<div id="customToast" class="toast-notification">Task dispatched...</div>
 
 	<script>
+		// =====================================================================
+		// 🌍 GLOBAL DECLARATIONS & DOM ELEMENTS
+		// =====================================================================
 		const nameInput = document.getElementById('name');
 		const baseDirInput = document.getElementById('base_dir');
 		const pathInput = document.getElementById('path');
+		const authCheckbox = document.getElementById('auth_enabled');
+		const authWrapper = document.getElementById('auth_credentials_wrapper');
+
 		let logInterval = null;
 		let currentDashboardData = null;
+		let editModeId = null;
 
-		// 🛡️ GLOBAL SAFETY GUARD: Ensures only ONE background polling instance can exist
+		// =====================================================================
+		// 🔒 STATE MANAGEMENT & SAFETY GUARDS
+		// =====================================================================
 		const clearActivePolling = () => {
 			if (logInterval !== null) {
 				clearInterval(logInterval);
@@ -188,9 +198,13 @@
 			}
 		};
 
+		// Path generation hooks
 		nameInput.addEventListener('input', updateDestinationPath);
 		baseDirInput.addEventListener('input', updateDestinationPath);
 
+		// =====================================================================
+		// 3. UI NOTIFICATION AND CONFIRMATION
+		// =====================================================================
 		const showToast = (message, isSuccess = true) => {
 			const toast = document.getElementById('customToast');
 			toast.innerText = message;
@@ -213,179 +227,135 @@
 			cancelBtn.onclick = close;
 		};
 
-		const authCheckbox = document.getElementById('auth_enabled');
-		const authWrapper = document.getElementById('auth_credentials_wrapper');
+		// =====================================================================
+		// 4. UI TAB ROUTING ENGINE
+		// =====================================================================
+		const switchTab = (tabId, updateUrl = true) => {
+			const tabMap = {
+				'feeds-tab': '/feeds',
+				'logs-tab': '/logs',
+				'settings-tab': '/settings'
+			};
+			const targetUrl = tabMap[tabId] || '/feeds';
 
-		authCheckbox.addEventListener('change', () => {
-			authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
-		});
+			// Toggle active styling states across views
+			document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+			document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
 
-		// 🔄 Ensure loadDashboardData maps your credentials into the newly visible inputs
+			document.getElementById(tabId).classList.add('active');
+
+			const targetBtn = document.querySelector(`.tab-nav .tab-btn[onclick*='${tabId}']`);
+			if (targetBtn) targetBtn.classList.add('active');
+
+			// Safe historical address bar context updates without popping page refreshes
+			if (updateUrl && window.location.pathname !== targetUrl) {
+				history.pushState({ tabId }, '', targetUrl);
+			}
+
+			clearActivePolling();
+
+			if (tabId === 'logs-tab') {
+				fetchEngineLogs();
+				logInterval = setInterval(fetchEngineLogs, 3000);
+			}
+		};
+
+		const handleInitialUrlRouting = () => {
+			const path = window.location.pathname;
+			if (path === '/logs') {
+				switchTab('logs-tab', false);
+			} else if (path === '/settings') {
+				switchTab('settings-tab', false);
+			} else {
+				switchTab('feeds-tab', false);
+			}
+			loadDashboardData();
+		};
+
+		// =====================================================================
+		// 5. API CORE INTERACTIONS & DATA SYNC
+		// =====================================================================
 		const loadDashboardData = async () => {
-			const res = await fetch('/api/series');
-			const data = await res.json();
+			try {
+				const res = await fetch('/api/series');
+				const data = await res.json();
+				currentDashboardData = data;
 
-			currentDashboardData = data;
+				if (data.global) {
+					if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
 
-			if (data.global) {
-				if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
+					const logoutBtn = document.querySelector('.logout-btn');
+					if (logoutBtn) {
+						logoutBtn.style.setProperty('display', data.global.auth_enabled === "1" ? 'inline-block' : 'none', 'important');
+					}
 
-				// 🚪 DYNAMIC LOGOUT BUTTON INTERCEPTOR
-				const logoutBtn = document.querySelector('.logout-btn');
-				if (logoutBtn) {
-					if (data.global.auth_enabled === "1") {
-						logoutBtn.style.setProperty('display', 'inline-block', 'important');
-					} else {
-						logoutBtn.style.setProperty('display', 'none', 'important');
+					authCheckbox.checked = data.global.auth_enabled === "1";
+					authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
+
+					if (data.global.auth_username) document.getElementById('auth_username').value = data.global.auth_username;
+					if (data.global.auth_password) document.getElementById('auth_password').value = data.global.auth_password;
+
+					if (data.global.storage_total && data.global.storage_free) {
+						const total = parseFloat(data.global.storage_total);
+						const free = parseFloat(data.global.storage_free);
+						const used = total - free;
+						const freePct = parseFloat(data.global.storage_free_pct);
+						const usedPct = 100 - freePct;
+
+						document.getElementById('storageStats').innerText = `${free.toFixed(1)} GB / ${total.toFixed(1)} GB Free (${freePct.toFixed(0)}%)`;
+
+						const bar = document.getElementById('storageBar');
+						bar.style.width = `${usedPct}%`;
+						if (freePct < 10) bar.classList.add('low-space');
+						else bar.classList.remove('low-space');
 					}
 				}
 
-				// Existing security toggle structures continue downstream smoothly
-				const authCheckbox = document.getElementById('auth_enabled');
-				const authWrapper = document.getElementById('auth_credentials_wrapper');
-			}
+				const tbody = document.querySelector('#seriesTable tbody');
+				tbody.innerHTML = '';
 
-			if (data.global && data.global.base_dir) {
-				baseDirInput.value = data.global.base_dir;
-			}
-
-			// 📊 Calculate and update the dynamic storage disk bar metrics
-			if (data.global && data.global.storage_total && data.global.storage_free) {
-				const total = parseFloat(data.global.storage_total);
-				const free = parseFloat(data.global.storage_free);
-				const used = total - free;
-				const freePct = parseFloat(data.global.storage_free_pct);
-				const usedPct = 100 - freePct;
-
-				document.getElementById('storagePanel').style.display = 'block';
-				document.getElementById('storageStats').innerText = `${free.toFixed(1)} GB / ${total.toFixed(1)} GB Free (${freePct.toFixed(0)}%)`;
-
-				const bar = document.getElementById('storageBar');
-				bar.style.width = `${usedPct}%`; // The filled portion represents used storage space
-
-				// Turn the bar red if space drops below a critical 10% boundary threshold
-				if (freePct < 10) {
-					bar.classList.add('low-space');
-				} else {
-					bar.classList.remove('low-space');
+				if (!data.series || Object.keys(data.series).length === 0) {
+					tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
+					return;
 				}
+
+				const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
+					const nameA = (a[1].name || a[0]).toLowerCase();
+					const nameB = (b[1].name || b[0]).toLowerCase();
+					return nameA.localeCompare(nameB);
+				});
+
+				sortedSeriesEntries.forEach(([id, sData]) => {
+					const rawName = sData.name || id || '';
+					const cleanName = rawName.replace(/'/g, "\\'");
+					const episodes = sData.downloaded_episodes || [];
+					const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
+					const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
+
+					const row = document.createElement('tr');
+					row.innerHTML = `
+						<td class="mobile-hide">
+							<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
+						</td>
+						<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+							<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${rawName}</b> 🌐</a></span>
+						</td>
+						<td class="mobile-hide"><code>${sData.path || ''}</code></td>
+						<td>
+							<button class="action-btn edit" onclick="openEditSeriesModal('${id}')">Edit</button>
+							<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
+						</td>
+					`;
+					tbody.appendChild(row);
+				});
+
+				document.querySelectorAll('.responsive-name-cell').forEach(cell => {
+					cell.style.setProperty('--badge-bg', cell.getAttribute('data-badge-color'));
+				});
+
+			} catch (err) {
+				console.error("Dashboard primary mapping retrieval failure:", err);
 			}
-
-			const tbody = document.querySelector('#seriesTable tbody');
-			tbody.innerHTML = ''; // Clear stale dashboard display matrices
-
-			if (!data.series || Object.keys(data.series).length === 0) {
-				tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
-				return;
-			}
-
-			// 🔤 ALPHABETICAL SORTING ENGINE: Convert the series object into a sorted array
-			const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
-				const nameA = (a[1].name || a[0]).toLowerCase();
-				const nameB = (b[1].name || b[0]).toLowerCase();
-				return nameA.localeCompare(nameB);
-			});
-
-			// Iterate over your freshly sorted alphabetical array map to paint rows cleanly
-			sortedSeriesEntries.forEach(([id, sData]) => {
-				const cleanName = sData.name.replace(/'/g, "\\'");
-				const cleanUrl = sData.url.replace(/'/g, "\\'");
-				const cleanPath = sData.path.replace(/'/g, "\\'");
-
-				// Calculate display metrics strings
-				const episodes = sData.downloaded_episodes || [];
-				const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
-				const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
-
-				const row = document.createElement('tr');
-				row.innerHTML = `
-					<td class="mobile-hide">
-						<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
-					</td>
-					<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
-						<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${sData.name}</b> 🌐</a></span>
-					</td>
-					<td class="mobile-hide"><code>${sData.path}</code></td>
-					<td>
-						<button class="action-btn edit" onclick="openEditSeriesModal('${id}')">Edit</button>
-						<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
-					</td>
-				`;
-				tbody.appendChild(row);
-			});
-
-			// Apply specific badge backgrounds to mobile flex pseudo-elements layout tags
-			document.querySelectorAll('.responsive-name-cell').forEach(cell => {
-				const color = cell.getAttribute('data-badge-color');
-				cell.style.setProperty('--badge-bg', color);
-			});
-		};
-
-		// 2. Update your series registration formula to match the router's allowed character matrix
-		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
-			e.preventDefault();
-			const name = nameInput.value.trim();
-
-			const targetId = editModeId ? editModeId : name.toLowerCase()
-				.replace(/[^a-z0-9\s-]/g, '')
-				.trim()
-				.replace(/[\s-]+/g, '-');
-
-			if (!targetId || targetId === '-') {
-				showToast('Series Name must contain valid alphanumeric characters!', false);
-				return;
-			}
-
-			// Gather the surviving checked episode array values
-			let activeEpisodes = [];
-			if (editModeId) {
-				const checkedBoxes = document.querySelectorAll('input[name="modal_episodes"]:checked');
-				activeEpisodes = Array.from(checkedBoxes).map(cb => cb.value);
-			}
-
-			await fetch(`/api/series/${targetId}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: name,
-					url: document.getElementById('url').value.trim(),
-					path: pathInput.value.trim(),
-					downloaded_episodes: activeEpisodes // 📡 Pass up the user modified records
-				})
-			});
-
-			const successMsg = editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.';
-			closeAddSeriesModal();
-			showToast(successMsg);
-			await loadDashboardData();
-		});
-
-		document.getElementById('configForm').addEventListener('submit', async (e) => {
-			e.preventDefault();
-
-			const authCheckbox = document.getElementById('auth_enabled');
-
-			await fetch('/api/series/_config', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					base_dir: baseDirInput.value.trim(),
-					auth_enabled: authCheckbox.checked ? "1" : "0",
-					auth_username: document.getElementById('auth_username').value.trim(),
-					auth_password: document.getElementById('auth_password').value.trim()
-				})
-			});
-
-			showToast('System application configuration saved successfully.');
-			await loadDashboardData();
-		});
-
-		const deleteSeries = async (id, friendlyName) => {
-			showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
-				await fetch(`/api/series/${id}`, { method: 'DELETE' });
-				await loadDashboardData();
-				showToast('Series deleted successfully.');
-			});
 		};
 
 		const triggerAction = async (endpoint) => {
@@ -394,23 +364,17 @@
 
 			const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
 			if (logTabButton) {
-				// Clear any running background polling interval first
 				clearInterval(logInterval);
 
-				// Remove active styling from all tabs
 				document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
 				document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
 
-				// Activate the logs window view layout panels
 				document.getElementById('logs-tab').classList.add('active');
 				logTabButton.classList.add('active');
 
-				// Fetch baseline logs immediately
 				await fetchEngineLogs();
 
-				// 🔄 Spawn the status monitor loop safely
 				logInterval = setInterval(async () => {
-					// 1. Force a live pull of text logs AND active download speeds simultaneously
 					await fetchEngineLogs();
 
 					const terminalText = document.getElementById('logTerminal').innerText;
@@ -433,48 +397,154 @@
 					if (isLatestDone) {
 						clearActivePolling();
 						showToast('Sync process complete! Updating feed records...');
-
-						// Ensure progress wrapper container hides itself cleanly when everything finishes
 						document.getElementById('logProgressWrapper').style.display = 'none';
-
 						await loadDashboardData();
 					}
 				}, 3000);
 			}
 		};
 
+		const fetchEngineLogs = async () => {
+			try {
+				const res = await fetch('/api/logs');
+				const logs = await res.json();
+				const terminal = document.getElementById('logTerminal');
+
+				if (logs.length === 0) {
+					terminal.innerText = "No logged actions registered yet.";
+				} else {
+					terminal.innerText = logs.join('\n');
+					terminal.scrollTop = terminal.scrollHeight;
+				}
+
+				const progRes = await fetch('/api/progress');
+				const activeJobs = await progRes.json();
+				const wrapper = document.getElementById('logProgressWrapper');
+
+				const downloadingShows = Object.keys(activeJobs);
+				if (downloadingShows.length === 0) {
+					wrapper.style.display = 'none';
+					return;
+				}
+
+				const activeShowKey = downloadingShows[0];
+				const currentJob = activeJobs[activeShowKey];
+
+				wrapper.style.display = 'block';
+				document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
+				document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
+				document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
+
+			} catch (err) {
+				console.error("Engine logs or progress metrics retrieval failure:", err);
+			}
+		};
+
+		const triggerClearLogsAction = async () => {
+			showConfirmModal(
+				'🗑️ Clear Activity Log?',
+				'Are you sure you want to permanently erase the current runtime log terminal buffer?',
+				async () => {
+					showToast('Clearing system log memory...');
+					await fetch('/api/logs/clear', { method: 'POST' });
+					await fetchEngineLogs();
+				}
+			);
+		};
+
+		const triggerSessionLogout = () => {
+			showConfirmModal(
+				'🔒 Really Log Out?',
+				'Are you sure you want to log out of the dashboard?',
+				() => { window.location.href = '/api/logout'; }
+			);
+		};
+
+		const deleteSeries = async (id, friendlyName) => {
+			showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
+				await fetch(`/api/series/${id}`, { method: 'DELETE' });
+				await loadDashboardData();
+				showToast('Series deleted successfully.');
+			});
+		};
+
+		// =====================================================================
+		// 6. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
+		// =====================================================================
+		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+			const name = nameInput.value.trim();
+			const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');
+
+			if (!targetId || targetId === '-') {
+				showToast('Series Name must contain valid alphanumeric characters!', false);
+				return;
+			}
+
+			let activeEpisodes = [];
+			if (editModeId) {
+				const checkedBoxes = document.querySelectorAll('input[name="modal_episodes"]:checked');
+				activeEpisodes = Array.from(checkedBoxes).map(cb => cb.value);
+			}
+
+			await fetch(`/api/series/${targetId}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: name,
+					url: document.getElementById('url').value.trim(),
+					path: pathInput.value.trim(),
+					downloaded_episodes: activeEpisodes
+				})
+			});
+
+			closeAddSeriesModal();
+			showToast(editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.');
+			await loadDashboardData();
+		});
+
+		document.getElementById('configForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+			await fetch('/api/series/_config', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					base_dir: baseDirInput.value.trim(),
+					auth_enabled: authCheckbox.checked ? "1" : "0",
+					auth_username: document.getElementById('auth_username').value.trim(),
+					auth_password: document.getElementById('auth_password').value.trim()
+				})
+			});
+			showToast('System application configuration saved successfully.');
+			await loadDashboardData();
+		});
+
 		const openAddSeriesModal = () => {
-			editModeId = null; // Clear out edit tracking context
+			editModeId = null;
 			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
 			document.getElementById('seriesForm').reset();
-
-			// 🧼 SAFETY RESET: Evict stale checkboxes and hide the container instantly
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').style.display = 'none';
-
 			updateDestinationPath();
+			
+			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
+			history.pushState({ modalOpen: true }, '', window.location.pathname + '#modal');
 			document.getElementById('addSeriesModal').classList.add('active');
 		};
 
-		// 🛠️ UPGRADED: Accepts only the unique ID and looks up data dynamically
 		const openEditSeriesModal = (id) => {
 			editModeId = id;
-
-			// Reference the current text fields directly from the active series map
 			const sData = currentDashboardData.series[id];
 			if (!sData) return;
 
 			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${sData.name || id}`;
-
-			// Map attributes straight into the input fields safely
 			document.getElementById('name').value = sData.name || '';
 			document.getElementById('url').value = sData.url || '';
 			document.getElementById('path').value = sData.path || '';
 
-			// Handle Episode Tracking Array Displays
 			const checklistContainer = document.getElementById('modalEpisodesChecklist');
 			const wrapper = document.getElementById('modalEpisodesWrapper');
-			checklistContainer.innerHTML = ''; // Wipe stale rows clean
+			checklistContainer.innerHTML = '';
 
 			const episodes = sData.downloaded_episodes || [];
 			if (episodes && episodes.length > 0) {
@@ -489,98 +559,29 @@
 				wrapper.style.display = 'none';
 			}
 
+			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
+			history.pushState({ modalOpen: true }, '', window.location.pathname + '#modal');
 			document.getElementById('addSeriesModal').classList.add('active');
 		};
 
 		const closeAddSeriesModal = () => {
 			editModeId = null;
 			document.getElementById('seriesForm').reset();
-
-			// 🧼 SAFETY RESET: Wipe checkboxes clear on modal closure
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').style.display = 'none';
-
 			document.getElementById('addSeriesModal').classList.remove('active');
-		};
 
-		window.onload = loadDashboardData;
-
-		const fetchEngineLogs = async () => {
-			try {
-				// 1. Fetch text logs from the engine
-				const res = await fetch('/api/logs');
-				const logs = await res.json();
-				const terminal = document.getElementById('logTerminal');
-
-				if (logs.length === 0) {
-					terminal.innerText = "No logged actions registered yet.";
-				} else {
-					terminal.innerText = logs.join('\n');
-					terminal.scrollTop = terminal.scrollHeight; // Auto-scrolls console
-				}
-
-				// 2. 📊 Fetch active binary stream progress states from Python memory
-				const progRes = await fetch('/api/progress');
-				const activeJobs = await progRes.json();
-				const wrapper = document.getElementById('logProgressWrapper');
-
-				const downloadingShows = Object.keys(activeJobs);
-				if (downloadingShows.length === 0) {
-					wrapper.style.display = 'none'; // Keep container invisible if idle
-					return;
-				}
-
-				// Track and render the first active item in the job dictionary array
-				const activeShowKey = downloadingShows[0];
-				const currentJob = activeJobs[activeShowKey];
-
-				wrapper.style.display = 'block';
-				document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
-				document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
-				document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
-
-			} catch (err) {
-				console.error("Engine logs or progress metrics retrieval failure:", err);
+			// 🧼 Clean up the URL hash if the user closed the modal manually via Cancel or Save
+			if (window.location.hash === '#modal') {
+				history.back();
 			}
 		};
 
-		const switchTab = (tabId) => {
-			document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-			document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
-
-			document.getElementById(tabId).classList.add('active');
-			event.currentTarget.classList.add('active');
-
-			// Safe eviction of any running background polling interval
-			clearActivePolling();
-
-			if (tabId === 'logs-tab') {
-				fetchEngineLogs();
-				// Securely instantiate the live log terminal listener
-				logInterval = setInterval(fetchEngineLogs, 3000);
-			}
-		};
-
-		const triggerSessionLogout = () => {
-			showConfirmModal(
-				'🔒 Really Log Out?',
-				'Are you sure you want to log out of the dashboard?',
-				() => {
-					// Force a top-level location change directly to the logout api to clean cookie states
-					window.location.href = '/api/logout';
-				}
-			);
-		};
-
-		// Self-driving UI visibility toggles
-		document.body.addEventListener('change', (e) => {
-			if (e.target && e.target.id === 'auth_enabled') {
-				const wrapper = document.getElementById('auth_credentials_wrapper');
-				if (wrapper) wrapper.style.display = e.target.checked ? 'block' : 'none';
-			}
+		// Security UI Field Mechanics Toggles
+		authCheckbox.addEventListener('change', () => {
+			authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
 		});
 
-		// Toggle input masking field mechanics between password and text types
 		const toggleFieldVisibility = (fieldId, element) => {
 			const field = document.getElementById(fieldId);
 			if (field.type === "password") {
@@ -592,17 +593,48 @@
 			}
 		};
 
-		// Log Purge Dispatch Action
-		const triggerClearLogsAction = async () => {
-			showConfirmModal(
-				'🗑️ Clear Activity Log?',
-				'Are you sure you want to permanently erase the current runtime log terminal buffer?',
-				async () => {
-					showToast('Clearing system log memory...');
-					await fetch('/api/logs/clear', { method: 'POST' });
-					await fetchEngineLogs(); // Immediately pull back the freshly cleared baseline statement
+		// =====================================================================
+		// 7. CORE INITIALIZATION BOOTLOADER
+		// =====================================================================
+		window.addEventListener('popstate', (e) => {
+			const modal = document.getElementById('addSeriesModal');
+			
+			// 🛡️ Intercept Back Button: If modal is visibly active, hide it instead of leaving
+			if (modal && modal.classList.contains('active')) {
+				// Clear tracking markers silently without looping history triggers
+				editModeId = null;
+				document.getElementById('seriesForm').reset();
+				document.getElementById('modalEpisodesChecklist').innerHTML = '';
+				document.getElementById('modalEpisodesWrapper').style.display = 'none';
+				modal.classList.remove('active');
+				return; 
+			}
+
+			if (e.state && e.state.tabId) {
+				switchTab(e.state.tabId, false);
+			} else {
+				handleInitialUrlRouting();
+			}
+		});
+
+		// ⌨️ Keyboard Escape Key Closer
+		window.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' || e.key === 'Esc') {
+				const modal = document.getElementById('addSeriesModal');
+				if (modal && modal.classList.contains('active')) {
+					closeAddSeriesModal();
 				}
-			);
+			}
+		});
+
+		window.onload = () => {
+			handleInitialUrlRouting();
+
+			const logsTab = document.getElementById('logs-tab');
+			if (logsTab && logsTab.classList.contains('active')) {
+				fetchEngineLogs();
+				logInterval = setInterval(fetchEngineLogs, 3000);
+			}
 		};
 	</script>
 </body>

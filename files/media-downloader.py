@@ -11,6 +11,9 @@ import threading
 import time
 import subprocess
 
+##############################################################################################
+# Variables
+##############################################################################################
 CONFIG_FILE = "/etc/config/media-downloader"
 HTML_FILE = "/usr/share/media-downloader/index.html"
 
@@ -21,11 +24,18 @@ LOG_BUFFER = []
 LOG_MAX_LINES = 150
 log_lock = threading.Lock()
 
+ACTIVE_SESSIONS = set()
+session_lock = threading.Lock()
+
+##############################################################################################
+# Supporting functions
+##############################################################################################
 def check_ffmpeg_available():
 	"""Dynamically probe the host OS to see if FFmpeg is installed in the PATH"""
 	import shutil
 	return shutil.whoami() if hasattr(shutil, 'whoami') else shutil.which("ffmpeg") is not None
 
+##############################################################################################
 def log_message(msg):
 	timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 	formatted_msg = f"[{timestamp}] {msg}"
@@ -35,9 +45,7 @@ def log_message(msg):
 		if len(LOG_BUFFER) > LOG_MAX_LINES:
 			LOG_BUFFER.pop(0)
 
-ACTIVE_SESSIONS = set()
-session_lock = threading.Lock()
-
+##############################################################################################
 def ensure_config_exists():
 	if not os.path.exists(CONFIG_FILE):
 		os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
@@ -51,15 +59,7 @@ def ensure_config_exists():
 			f.write("    option auth_username 'admin'\n")
 			f.write("    option auth_password 'admin'\n\n")
 
-def get_system_hostname():
-	try:
-		if os.path.exists("/proc/sys/kernel/hostname"):
-			with open("/proc/sys/kernel/hostname", "r") as f:
-				return f.read().strip()
-	except Exception:
-		pass
-	return "Router"
-
+##############################################################################################
 def get_storage_metrics(path):
 	try:
 		target_path = path if path else "/"
@@ -83,6 +83,7 @@ def get_storage_metrics(path):
 		log_message(f"Storage monitoring metrics error: {e}")
 		return {"storage_total": "0", "storage_free": "0", "storage_free_pct": "0"}
 
+##############################################################################################
 def read_uci_config():
 	ensure_config_exists()
 	config_dict = {
@@ -124,10 +125,10 @@ def read_uci_config():
 
 	metrics = get_storage_metrics(config_dict["global"].get("base_dir", "/"))
 	config_dict["global"].update(metrics)
-	config_dict["global"]["hostname"] = get_system_hostname()
 	config_dict["global"]["current_time"] = str(int(time.time()))
 	return config_dict
 
+##############################################################################################
 def write_uci_config(config_data):
 	ensure_config_exists()
 	with open(CONFIG_FILE, 'w') as f:
@@ -148,30 +149,72 @@ def write_uci_config(config_data):
 			eps = ",".join(s_data.get('downloaded_episodes', []))
 			f.write(f"    option downloaded_episodes '{eps}'\n\n")
 
+##############################################################################################
 def scan_existing_episodes():
-	log_message("Initializing folder sync validation scan query...")
+	"""Scans download folders to synchronize the historical database,
+
+	safely purging corrupted stubs under 10MB to trigger self-healing redownloads.
+	"""
+	import os, re
 	config = read_uci_config()
+	if not config.get("series"):
+		return
+
+	# 🛡️ 10MB Threshold Boundary (10 * 1024 * 1024 bytes)
+	# Any video payload under this weight is flagged as an abandoned transfer
+	CORRUPT_THRESHOLD_BYTES = 10485760
 	changed = False
+
 	for s_id, s_data in config["series"].items():
-		path = s_data.get('path', '')
-		if os.path.exists(path):
-			existing_eps = s_data.get('downloaded_episodes', [])
-			updated_eps = set(existing_eps)
-			for file in os.listdir(path):
-				match = re.search(r'\b[sS]\d+[eE](\d+)\b|\b(?:ep|episode|e)\.?\s*(\d+)\b', file, re.IGNORECASE)
+		folder_path = s_data.get("path", "")
+		if not folder_path or not os.path.exists(folder_path):
+			continue
+
+		existing_eps = set()
+		try:
+			for filename in os.listdir(folder_path):
+				filename_lower = filename.lower()
+				if not filename_lower.endswith(('.mkv', '.mp4', '.avi', '.ts')):
+					continue
+
+				full_file_path = os.path.join(folder_path, filename)
+
+				# 🪓 THE FILESYSTEM CLEANUP MATRIX CORE
+				try:
+					file_size = os.path.getsize(full_file_path)
+					if file_size < CORRUPT_THRESHOLD_BYTES:
+						log_message(f"[{s_id}] Self-Healing Active: Found broken stub ({filename} - {file_size / 1048576:.2f}MB). Purging asset...")
+						os.remove(full_file_path)
+
+						# Wipe matching orphaned metadata text logs if they exist
+						base_name, _ = os.path.splitext(filename)
+						nfo_path = os.path.join(folder_path, f"{base_name}.nfo")
+						if os.path.exists(nfo_path): os.remove(nfo_path)
+						continue # Skip mapping this target to history arrays completely
+				except OSError as fs_err:
+					log_message(f"[{s_id}] Filesystem stat tracking exception: {fs_err}")
+					continue
+
+				# Parse out the valid, non-corrupted episode numbers
+				match = re.search(r'\b[sS]\d+[eE](\d+)\b|\b(?:ep|episode|e)\.?\s*(\d+)\b', filename)
 				if match:
-					raw_num = next(g for g in match.groups() if g is not None)
-					ep_num = str(int(raw_num))
-					if ep_num not in updated_eps:
-						updated_eps.add(ep_num)
-						changed = True
-						s_data['last_update'] = str(int(time.time()))
-						log_message(f"[{s_id}] Detected local file matching tracking query. Linked Ep {ep_num}.")
-			s_data['downloaded_episodes'] = sorted(list(updated_eps), key=int)
+					ep_num = str(int(match.group(1) or match.group(2)))
+					existing_eps.add(ep_num)
+
+			# Sift and update local history tracking configurations strings
+			current_history = sorted(list(existing_eps), key=int)
+			if config["series"][s_id].get("downloaded_episodes") != current_history:
+				config["series"][s_id]["downloaded_episodes"] = current_history
+				changed = True
+
+		except Exception as dir_err:
+			log_message(f"[{s_id}] Directory scanner baseline exception: {dir_err}")
+
 	if changed:
 		write_uci_config(config)
-	log_message("Folder structural verification sync complete.")
+		log_message("System filesystem state synchronized. Corrupted tracking keys successfully removed.")
 
+##############################################################################################
 def download_url_file(url, dest_folder, series_name, ep_num):
 	try:
 		os.makedirs(dest_folder, exist_ok=True)
@@ -204,9 +247,9 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 
 		log_message(f"Normalized download target layout: '{standardized_name}'")
 
-		# =====================================================================
+		#======================================================================
 		# 🔀 NEW CHIEF ROUTING VALVE: Intercept HLS Playlists before calling curl
-		# =====================================================================
+		#======================================================================
 		if ".m3u8" in url:
 			if check_ffmpeg_available():
 				log_message(f"[{series_name}] HLS playlist target identified. Spawning native FFmpeg multiplexer...")
@@ -245,9 +288,9 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 				log_message(f"[{series_name}] Error: Endpoint requires HLS stream parsing, but FFmpeg is not installed on this host environment.")
 				return False
 
-		# =====================================================================
+		#======================================================================
 		# 🚀 Step 3 (Original): Fall back to standard direct file download loop
-		# =====================================================================
+		#======================================================================
 		log_message(f"Spawning live curl process pipe with progress tracking...")
 		curl_cmd = [
 			"curl", "-#", "-L",
@@ -266,9 +309,9 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		# Spawn the process asynchronously
 		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-		# =====================================================================
+		#======================================================================
 		# 📊 STEP 4: Bulletproof \r-Aware Progress Scraper
-		# =====================================================================
+		#======================================================================
 		buffer = ""
 		while True:
 			# Read small character chunks dynamically from the stream
@@ -316,6 +359,7 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		log_message(f"File transaction write crash on {url}: {e}")
 		return False
 
+##############################################################################################
 def run_downloader_cycle():
 	# Generate a short, unique runtime signature string based on the exact clock ticks
 	cycle_token = f"CYCLE-SIG-{int(time.time())}"
@@ -383,12 +427,9 @@ def run_downloader_cycle():
 				if not re.search(r'ep|episode|s\d+|down', clean_text_lower):
 					continue
 
-				# =====================================================================
-				# 🎯 FIXED EPISODE PARSER: Targets numbers associated with episode markers
-				# =====================================================================
-				# =====================================================================
+				#======================================================================
 				# 🎯 BOUNDS-CHECKED EPISODE PARSER: Discards numbers above 150 (like years)
-				# =====================================================================
+				#======================================================================
 				# 1. Look for explicit prefixes first (e.g., ep1, e_05, episode 12)
 				ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
 
@@ -492,7 +533,11 @@ def run_downloader_cycle():
 
 	log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
 
+##############################################################################################
+# Web Server handlers
+##############################################################################################
 class RouterHTTPHandler(BaseHTTPRequestHandler):
+	###########################################################################
 	def is_authenticated(self):
 		config = read_uci_config()
 		if config["global"].get("auth_enabled", "0") == "0":
@@ -507,6 +552,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				return True
 		return False
 
+	###########################################################################
 	def serve_login_page(self, error_msg=""):
 		self.send_response(200)
 		self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -514,6 +560,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 
 		error_div = f'<div style="color:#dc3545; background:#f8d7da; padding:10px; border-radius:4px; margin-bottom:15px; font-size:0.85rem; border:1px solid #f5c6cb;">⚠️ {error_msg}</div>' if error_msg else ""
 
+	###########################################################################
 	def serve_login_page(self, error_msg=""):
 		self.send_response(200)
 		self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -567,27 +614,37 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		</html>"""
 		self.wfile.write(html_login.encode('utf-8'))
 
+	###########################################################################
 	def log_message(self, format, *args):
 		return
 
+	###########################################################################
 	def do_GET(self):
 		# 🔓 ASSET PASS GATES: Allow unauthenticated requests to pull design layout tools
+		base_dir = os.path.dirname(HTML_FILE)
 		if self.path in ['/style.css', '/wallpaper.webp', '/favicon.ico', '/app-icon.png']:
 			pass
 		elif not self.is_authenticated():
 			self.serve_login_page()
 			return
 
-		base_dir = os.path.dirname(HTML_FILE)
-		if self.path in ['/', '/index.html']:
-			self.send_response(200)
-			self.send_header('Content-Type', 'text/html; charset=utf-8')
-			self.end_headers()
+		# =====================================================================
+		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
+		# =====================================================================
+		if self.path in ['/', '/index.html', '/feeds', '/logs', '/settings']:
+			# Locate your original index.html static server file block
+			# and ensure it executes smoothly here
 			try:
-				with open(HTML_FILE, 'r', encoding='utf-8') as f:
-					self.wfile.write(f.read().encode('utf-8'))
+				index_file_path = os.path.join(base_dir, 'index.html')
+				self.send_response(200)
+				self.send_header('Content-Type', 'text/html; charset=utf-8')
+				self.end_headers()
+				with open(index_file_path, 'rb') as f:
+					self.wfile.write(f.read())
 			except Exception as e:
-				self.wfile.write(f"Error loading interface layout: {e}".encode('utf-8'))
+				self.send_error(500, f"Dashboard extraction fault: {e}")
+			return
+		#======================================================================
 		elif self.path == '/style.css':
 			css_path = os.path.join(base_dir, 'style.css')
 			if os.path.exists(css_path):
@@ -599,6 +656,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_response(404)
 				self.end_headers()
+			return
+		#======================================================================
 		elif self.path == '/manifest.json':
 			manifest_path = os.path.join(base_dir, 'manifest.json')
 			if os.path.exists(manifest_path):
@@ -610,6 +669,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_response(404)
 				self.end_headers()
+			return
+		#======================================================================
 		elif self.path == '/sw.js':
 			sw_path = os.path.join(base_dir, 'sw.js')
 			if os.path.exists(sw_path):
@@ -622,6 +683,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_response(404)
 				self.end_headers()
+			return
+		#======================================================================
 		elif self.path in ['/app-icon.png', '/favicon.ico']:
 			img_path = os.path.join(base_dir, 'app-icon.png')
 			if os.path.exists(img_path):
@@ -633,6 +696,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_response(404)
 				self.end_headers()
+			return
+		#======================================================================
 		elif self.path == '/wallpaper.webp':
 			img_path = os.path.join(base_dir, 'wallpaper.webp')
 			if os.path.exists(img_path):
@@ -644,17 +709,23 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_response(404)
 				self.end_headers()
+			return
+		#======================================================================
 		elif self.path == '/api/series':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps(read_uci_config()).encode('utf-8'))
+			return
+		#======================================================================
 		elif self.path == '/api/logs':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json; charset=utf-8')
 			self.end_headers()
 			with log_lock:
 				self.wfile.write(json.dumps(LOG_BUFFER).encode('utf-8'))
+			return
+		#======================================================================
 		elif self.path == '/api/logout':
 			# Isolate the active cookie session ID to wipe it out of router RAM memory
 			cookie_header = self.headers.get('Cookie', '')
@@ -672,16 +743,20 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.send_header('Location', '/')
 			self.end_headers()
 			return
+		#======================================================================
 		elif self.path == '/api/progress':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			with progress_lock:
 				self.wfile.write(json.dumps(ACTIVE_DOWNLOADS).encode('utf-8'))
+			return
+		#======================================================================
 		else:
 			self.send_response(404)
 			self.end_headers()
 
+	###########################################################################
 	def do_POST(self):
 		if self.path == '/login':
 			content_length = int(self.headers['Content-Length'])
@@ -708,12 +783,12 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			else:
 				self.serve_login_page("Invalid username or password credentials.")
 				return
-
+		#======================================================================
 		if not self.is_authenticated():
 			self.send_response(401)
 			self.end_headers()
 			return
-
+		#======================================================================
 		if self.path == '/api/logs/clear':
 			with log_lock:
 				LOG_BUFFER.clear()
@@ -724,7 +799,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.end_headers()
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			return
-
+		#======================================================================
 		if self.path.startswith('/api/series/'):
 			s_id = self.path.split('/')[-1]
 			content_length = int(self.headers['Content-Length'])
@@ -824,21 +899,32 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.end_headers()
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			return
-
+		#======================================================================
 		elif self.path == '/api/scan':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			threading.Thread(target=scan_existing_episodes).start()
+		#======================================================================
 		elif self.path == '/api/download':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			threading.Thread(target=run_downloader_cycle).start()
-
+		#======================================================================
+		else:
+			self.send_response(404)
+			self.end_headers()
+	###########################################################################
 	def do_DELETE(self):
+		#======================================================================
+		if not self.is_authenticated():
+			self.send_response(401)
+			self.end_headers()
+			return
+		#======================================================================
 		if self.path.startswith('/api/series/'):
 			s_id = self.path.split('/')[-1]
 			config = read_uci_config()
@@ -854,7 +940,14 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				return
 			self.send_response(404)
 			self.end_headers()
+		#======================================================================
+		else:
+			self.send_response(404)
+			self.end_headers()
 
+##############################################################################################
+# Standalone script code to launch our app!
+##############################################################################################
 if __name__ == '__main__':
 	log_message("Initializing System Core Media Downloader Runtime Environment...")
 	if len(sys.argv) > 1 and sys.argv[1] == '--cron':
