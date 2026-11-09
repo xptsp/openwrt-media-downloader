@@ -217,14 +217,24 @@
 			const modal = document.getElementById('customModal');
 			document.getElementById('modalTitle').innerText = title;
 			document.getElementById('modalMessage').innerText = message;
+			
+			// 🛡️ Push virtual stack layer
+			history.pushState({ modalOpen: true }, '', window.location.pathname + '#confirm');
 			modal.classList.add('active');
 
 			const confirmBtn = document.getElementById('modalConfirmBtn');
 			const cancelBtn = document.getElementById('modalCancelBtn');
-			const close = () => modal.classList.remove('active');
+			
+			// 🧼 Unified Closer: Handles both styling removals and history cleanup synchronously
+			window.closeCustomModal = () => {
+				modal.classList.remove('active');
+				if (window.location.hash === '#confirm') {
+					history.back();
+				}
+			};
 
-			confirmBtn.onclick = () => { onConfirm(); close(); };
-			cancelBtn.onclick = close;
+			confirmBtn.onclick = () => { onConfirm(); window.closeCustomModal(); };
+			cancelBtn.onclick = () => { window.closeCustomModal(); };
 		};
 
 		// =====================================================================
@@ -597,16 +607,21 @@
 		// 7. CORE INITIALIZATION BOOTLOADER
 		// =====================================================================
 		window.addEventListener('popstate', (e) => {
-			const modal = document.getElementById('addSeriesModal');
+			const confirmModal = document.getElementById('customModal');
+			const seriesModal = document.getElementById('addSeriesModal');
 			
-			// 🛡️ Intercept Back Button: If modal is visibly active, hide it instead of leaving
-			if (modal && modal.classList.contains('active')) {
-				// Clear tracking markers silently without looping history triggers
+			// 🛡️ Mobile Back Key hit while confirmation box was visible
+			if (confirmModal && confirmModal.classList.contains('active')) {
+				confirmModal.classList.remove('active'); // Browser handled hash removal, just drop the UI layer
+				return;
+			}
+			
+			if (seriesModal && seriesModal.classList.contains('active')) {
 				editModeId = null;
 				document.getElementById('seriesForm').reset();
 				document.getElementById('modalEpisodesChecklist').innerHTML = '';
 				document.getElementById('modalEpisodesWrapper').style.display = 'none';
-				modal.classList.remove('active');
+				seriesModal.classList.remove('active');
 				return; 
 			}
 
@@ -618,10 +633,23 @@
 		});
 
 		// ⌨️ Keyboard Escape Key Closer
+		// ⌨️ Keyboard Escape Key Closer
 		window.addEventListener('keydown', (e) => {
 			if (e.key === 'Escape' || e.key === 'Esc') {
-				const modal = document.getElementById('addSeriesModal');
-				if (modal && modal.classList.contains('active')) {
+				const confirmModal = document.getElementById('customModal');
+				const seriesModal = document.getElementById('addSeriesModal');
+				
+				// Run the unified closer to clean the location bar hash instantly
+				if (confirmModal && confirmModal.classList.contains('active')) {
+					if (typeof window.closeCustomModal === 'function') {
+						window.closeCustomModal();
+					} else {
+						confirmModal.classList.remove('active');
+					}
+					return;
+				}
+				
+				if (seriesModal && seriesModal.classList.contains('active')) {
 					closeAddSeriesModal();
 				}
 			}
