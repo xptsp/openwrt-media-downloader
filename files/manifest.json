@@ -1,9 +1,22 @@
 {
   "short_name": "Media Downloader",
   "name": "Media Downloader",
-  "start_url": "/",
+  "description": "Automated K-Drama & Series Downloader",
+  "start_url": "/feeds",
+  "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "background_color": "#121212",
+  "theme_color": "#181818",
+  "orientation": "portrait-primary",
+  "share_target": {
+    "action": "/feeds",
+    "method": "GET",
+    "params": {
+      "title": "shared_title",
+      "text": "shared_text",
+      "url": "shared_url"
+    }
+  },
   "icons": [
     {
       "src": "/app-icon.png",

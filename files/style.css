@@ -90,12 +90,24 @@ code {
    ========================================================================== */
 .tab-nav {
     display: flex;
+    flex-wrap: nowrap;
     gap: 8px;
     border-bottom: 2px solid var(--light-border);
     margin-bottom: 25px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Edge / IE */
+}
+
+.tab-nav::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Android PWA */
 }
 
 .tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
     background: none;
     border: none;
     outline: none;
@@ -106,12 +118,7 @@ code {
     cursor: pointer;
     border-radius: 6px 6px 0 0;
     transition: all 0.2s ease;
-    margin-bottom: -2px;
-}
-
-.tab-btn:hover {
-    color: #495057;
-    background-color: #e9ecef;
+    margin-bottom: 0;
 }
 
 .tab-btn.active {
@@ -178,7 +185,23 @@ tr:hover {
    ========================================================================== */
 .btn-group {
     display: flex;
-    gap: 12px;
+    flex-wrap: nowrap;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Edge / IE */
+}
+
+.btn-group::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Android PWA */
+}
+
+.btn-group .btn,
+.btn-group button {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 button {

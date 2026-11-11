@@ -5,8 +5,11 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Media Downloader</title>
 	<link rel="manifest" href="/manifest.json">
-	<meta name="theme-color" content="#28a745">
-	<link rel="icon" type="image/png" href="/app-icon.png">
+	<meta name="theme-color" content="#181818">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<link rel="apple-touch-icon" href="/app-icon.png">
 	<link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -152,6 +155,10 @@
 					</div>
 					<small style="color: var(--secondary-gray); display: block; margin-top: 6px;">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
 				</div>
+				<div id="modalRecheckWrapper" class="form-group" style="display: none; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--light-border);">
+					<label for="editSeriesRecheck" style="margin: 0; font-weight: 600;">🔄 Force Recheck Status (Ongoing)</label>
+					<input type="checkbox" id="editSeriesRecheck" style="width: auto; transform: scale(1.2); cursor: pointer;">
+				</div>
 				<div class="modal-buttons">
 					<button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
 					<button type="submit" class="success-btn">💾 Save Series</button>
@@ -176,7 +183,7 @@
 
 	<script>
 		// =====================================================================
-		// 🌍 GLOBAL DECLARATIONS & DOM ELEMENTS
+		// 1. GLOBAL DECLARATIONS & DOM ELEMENTS
 		// =====================================================================
 		const nameInput = document.getElementById('name');
 		const baseDirInput = document.getElementById('base_dir');
@@ -189,7 +196,7 @@
 		let editModeId = null;
 
 		// =====================================================================
-		// 🔒 STATE MANAGEMENT & SAFETY GUARDS
+		// 2. STATE MANAGEMENT & SAFETY GUARDS
 		// =====================================================================
 		const clearActivePolling = () => {
 			if (logInterval !== null) {
@@ -292,7 +299,10 @@
 			}
 		};
 
-		const handleInitialUrlRouting = () => {
+		const handleInitialUrlRouting = async () => {
+			if (typeof loadDashboardData === 'function') {
+				await loadDashboardData();
+			}
 			const path = window.location.pathname.replace(/\/+$/, '') || '/feeds';
 			const pathToTab = {
 				'/feeds': 'feeds-tab',
@@ -302,7 +312,6 @@
 			};
 			const tabId = pathToTab[path] || 'feeds-tab';
 			switchTab(tabId, false);
-			loadDashboardData();
 		};
 
 		// =====================================================================
@@ -425,15 +434,18 @@
 					const rawName = sData.name || id || '';
 					const cleanName = rawName.replace(/'/g, "\\'");
 					const episodes = sData.downloaded_episodes || [];
-					const badgeText = episodes.length > 0 ? `EP ${episodes[episodes.length - 1]}` : 'IDLE';
-					const badgeColor = episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)';
+					const isComplete = (sData.status === 'complete');
+
+					// Show "COMPLETE" when finished, otherwise show the latest episode or "IDLE"
+					const badgeText = isComplete ? 'COMPLETE' : (episodes.length > 0 ? `E${String(episodes[episodes.length - 1]).padStart(2, '0')}` : 'IDLE');
+					const badgeColor = isComplete ? 'var(--secondary-gray)' : (episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)');
 
 					const row = document.createElement('tr');
 					row.innerHTML = `
 						<td class="mobile-hide">
 							<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
 						</td>
-						<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}">
+						<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}" style="--badge-bg: ${badgeColor};">
 							<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${rawName}</b> 🌐</a></span>
 						</td>
 						<td class="mobile-hide"><code>${sData.path || ''}</code></td>
@@ -616,9 +628,14 @@
 			}
 
 			let activeEpisodes = [];
+			let seriesStatus = 'ongoing';
+
 			if (editModeId) {
 				const checkedBoxes = document.querySelectorAll('input[name="modal_episodes"]:checked');
 				activeEpisodes = Array.from(checkedBoxes).map(cb => cb.value);
+
+				const recheckBox = document.getElementById('editSeriesRecheck');
+				seriesStatus = (recheckBox && recheckBox.checked) ? 'ongoing' : 'complete';
 			}
 
 			await fetch(`/api/series/${targetId}`, {
@@ -628,7 +645,8 @@
 					name: name,
 					url: document.getElementById('url').value.trim(),
 					path: pathInput.value.trim(),
-					downloaded_episodes: activeEpisodes
+					downloaded_episodes: activeEpisodes,
+					status: seriesStatus
 				})
 			});
 
@@ -676,6 +694,14 @@
 			document.getElementById('url').value = sData.url || '';
 			document.getElementById('path').value = sData.path || '';
 
+			// Show the status recheck toggle and set it based on current series status
+			const recheckWrapper = document.getElementById('modalRecheckWrapper');
+			const recheckBox = document.getElementById('editSeriesRecheck');
+			if (recheckWrapper && recheckBox) {
+				recheckWrapper.style.display = 'flex';
+				recheckBox.checked = (sData.status !== 'complete');
+			}
+
 			const checklistContainer = document.getElementById('modalEpisodesChecklist');
 			const wrapper = document.getElementById('modalEpisodesWrapper');
 			checklistContainer.innerHTML = '';
@@ -703,6 +729,10 @@
 			document.getElementById('seriesForm').reset();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').style.display = 'none';
+
+			const recheckWrapper = document.getElementById('modalRecheckWrapper');
+			if (recheckWrapper) recheckWrapper.style.display = 'none';
+
 			document.getElementById('addSeriesModal').classList.remove('active');
 
 			// 🧼 Clean up the URL hash if the user closed the modal manually via Cancel or Save
@@ -730,6 +760,65 @@
 		// =====================================================================
 		// 7. CORE INITIALIZATION BOOTLOADER
 		// =====================================================================
+		const handleIncomingShareTarget = () => {
+			const params = new URLSearchParams(window.location.search);
+			const sharedUrl = params.get('shared_url') || '';
+			const sharedText = params.get('shared_text') || '';
+			const sharedTitle = params.get('shared_title') || '';
+
+			if (!sharedUrl && !sharedText && !sharedTitle) return;
+
+			// Extract the URL (Android browsers often put the URL inside shared_text)
+			const urlMatch = `${sharedUrl} ${sharedText}`.match(/https?:\/\/[^\s]+/);
+			const extractedUrl = urlMatch ? urlMatch[0] : '';
+
+			// 1. Detect season number (S02, S03, Season 3, etc.) BEFORE stripping it from the title
+			const sharedSeasonMatch = sharedTitle.match(/\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b/i);
+			const sharedSeasonFolder = sharedSeasonMatch ? `Season ${sharedSeasonMatch[1].padStart(2, '0')}` : '';
+
+			// 2. Clean the title (stripping "Download", site names, brackets, AND trailing S01/S02/S03)
+			let cleanedTitle = sharedTitle
+				.replace(/^(?:Download|Watch)\s+/i, '')
+				.replace(/\s*[-|–—:]\s*(?:DramaKey|TheNkiri|Nkiri|Korean Drama|K-Drama|Chinese Drama|C-Drama).*$/i, '')
+				.replace(/\s*[\(\[](?:19|20)\d{2}[\)\]]/g, '')
+				.replace(/\s*[\(\[](?:Complete|Completed|Ongoing|Eng(?:lish)?\s*Sub(?:s|bed)?|Korean|Chinese|Japanese|Drama|Series|Season\s*\d+|S\d{1,2}|Ep(?:isode)?\.?\s*\d+[^)\]]*)[\)\]]/gi, '')
+				.replace(/\s+(?:S\d{1,2}(?:E\d{1,3})?|Season\s*\d+|Complete(?:d)?|Ongoing|Ep(?:isode)?\.?\s*\d+(?:\s*[-–to&]+\s*\d+)?|Korean Drama|K-Drama|Chinese Drama|C-Drama|Eng(?:lish)?\s*Sub)\b.*$/i, '')
+				.replace(/\s+/g, ' ')
+				.replace(/^[-–—:|]+|[-–—:|]+$/g, '')
+				.trim();
+
+			// Open the Add Series modal and populate the fields
+			if (typeof openAddSeriesModal === 'function') {
+				openAddSeriesModal();
+			} else {
+				document.getElementById('addSeriesModal').classList.add('active');
+			}
+
+			const nameField = document.getElementById('name');
+			const urlField = document.getElementById('url');
+			const pathField = document.getElementById('path');
+
+			if (nameField && cleanedTitle) {
+				nameField.value = cleanedTitle;
+				nameField.dispatchEvent(new Event('input'));
+
+				// Ensure Destination Path uses the cleaned series folder + Season XX (if Season 02+)
+				if (pathField) {
+					const baseDir = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/hdd/KDramas';
+					const safeFolder = cleanedTitle.replace(/[^a-zA-Z0-9\s.'-]/g, '').trim();
+					pathField.value = sharedSeasonFolder
+						? `${baseDir.replace(/\/+$/, '')}/${safeFolder}/${sharedSeasonFolder}`
+						: `${baseDir.replace(/\/+$/, '')}/${safeFolder}`;
+				}
+			}
+			if (urlField && extractedUrl) {
+				urlField.value = extractedUrl;
+			}
+
+			// Clean the query parameters from the URL bar
+			history.replaceState(null, '', '/feeds');
+		};
+
 		window.addEventListener('popstate', (e) => {
 			const confirmModal = document.getElementById('customModal');
 			const seriesModal = document.getElementById('addSeriesModal');
@@ -780,6 +869,7 @@
 
 		window.onload = () => {
 			handleInitialUrlRouting();
+			handleIncomingShareTarget()
 
 			const logsTab = document.getElementById('logs-tab');
 			if (logsTab && logsTab.classList.contains('active')) {
@@ -787,6 +877,13 @@
 				logInterval = setInterval(fetchEngineLogs, 3000);
 			}
 		};
+		if ('serviceWorker' in navigator) {
+			window.addEventListener('load', () => {
+				navigator.serviceWorker.register('/sw.js').catch((err) => {
+					console.warn('ServiceWorker registration failed:', err);
+				});
+			});
+		}
 	</script>
 </body>
 </html>

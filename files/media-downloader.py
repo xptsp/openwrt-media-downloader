@@ -123,7 +123,11 @@ def read_uci_config():
 				current_section_type = sec_match.group(1)
 				current_section_name = sec_match.group(2)
 				if current_section_type == "series":
-					config_dict["series"][current_section_name] = {"downloaded_episodes": [], "last_update": "0"}
+					config_dict["series"][current_section_name] = {
+						"downloaded_episodes": [],
+						"last_update": "0",
+						"status": "ongoing"
+					}
 				continue
 			opt_match = re.match(r"^option\s+(\w+)\s+'([^']+)'", line)
 			if opt_match and current_section_type:
@@ -158,20 +162,21 @@ def write_uci_config(config_data):
 			f.write(f"    option name '{s_data.get('name', '')}'\n")
 			f.write(f"    option url '{s_data.get('url', '')}'\n")
 			f.write(f"    option path '{s_data.get('path', '')}'\n")
+			f.write(f"    option status '{s_data.get('status', 'ongoing')}'\n")
 			f.write(f"    option last_update '{s_data.get('last_update', '0')}'\n")
 			eps = ",".join(s_data.get('downloaded_episodes', []))
 			f.write(f"    option downloaded_episodes '{eps}'\n\n")
 
 ##############################################################################################
 def scan_existing_episodes():
-	"""Scans download folders to synchronize the historical database,
+	"""Scans download folders and Season subfolders to synchronize the historical database,
 
 	safely purging corrupted stubs under 10MB to trigger self-healing redownloads.
 	"""
 	import os, re
 	config = read_uci_config()
 	if not config.get("series"):
-		return
+		return {"success": True, "changed": False}
 
 	# 🛡️ 10MB Threshold Boundary (10 * 1024 * 1024 bytes)
 	# Any video payload under this weight is flagged as an abandoned transfer
@@ -185,34 +190,36 @@ def scan_existing_episodes():
 
 		existing_eps = set()
 		try:
-			for filename in os.listdir(folder_path):
-				filename_lower = filename.lower()
-				if not filename_lower.endswith(('.mkv', '.mp4', '.avi', '.ts')):
-					continue
+			for root, dirs, files in os.walk(folder_path):
+				for filename in files:
+					filename_lower = filename.lower()
+					if not filename_lower.endswith(('.mkv', '.mp4', '.avi', '.ts')):
+						continue
 
-				full_file_path = os.path.join(folder_path, filename)
+					full_file_path = os.path.join(root, filename)
 
-				# 🪓 THE FILESYSTEM CLEANUP MATRIX CORE
-				try:
-					file_size = os.path.getsize(full_file_path)
-					if file_size < CORRUPT_THRESHOLD_BYTES:
-						log_message(f"[{s_id}] Self-Healing Active: Found broken stub ({filename} - {file_size / 1048576:.2f}MB). Purging asset...")
-						os.remove(full_file_path)
+					# 🪓 THE FILESYSTEM CLEANUP MATRIX CORE
+					try:
+						file_size = os.path.getsize(full_file_path)
+						if file_size < CORRUPT_THRESHOLD_BYTES:
+							log_message(f"[{s_id}] Self-Healing Active: Found broken stub ({filename} - {file_size / 1048576:.2f}MB). Purging asset...")
+							os.remove(full_file_path)
 
-						# Wipe matching orphaned metadata text logs if they exist
-						base_name, _ = os.path.splitext(filename)
-						nfo_path = os.path.join(folder_path, f"{base_name}.nfo")
-						if os.path.exists(nfo_path): os.remove(nfo_path)
-						continue # Skip mapping this target to history arrays completely
-				except OSError as fs_err:
-					log_message(f"[{s_id}] Filesystem stat tracking exception: {fs_err}")
-					continue
+							# Wipe matching orphaned metadata text logs if they exist
+							base_name, _ = os.path.splitext(filename)
+							nfo_path = os.path.join(root, f"{base_name}.nfo")
+							if os.path.exists(nfo_path):
+								os.remove(nfo_path)
+							continue # Skip mapping this target to history arrays completely
+					except OSError as fs_err:
+						log_message(f"[{s_id}] Filesystem stat tracking exception: {fs_err}")
+						continue
 
-				# Parse out the valid, non-corrupted episode numbers
-				match = re.search(r'\b[sS]\d+[eE](\d+)\b|\b(?:ep|episode|e)\.?\s*(\d+)\b', filename)
-				if match:
-					ep_num = str(int(match.group(1) or match.group(2)))
-					existing_eps.add(ep_num)
+					# Parse out the valid, non-corrupted episode numbers
+					match = re.search(r'\b[sS]\d+[eE](\d+)\b|\b(?:ep|episode|e)\.?\s*(\d+)\b', filename)
+					if match:
+						ep_num = str(int(match.group(1) or match.group(2)))
+						existing_eps.add(ep_num)
 
 			# Sift and update local history tracking configurations strings
 			current_history = sorted(list(existing_eps), key=int)
@@ -572,9 +579,13 @@ def run_downloader_cycle():
                         season_match = re.search(r'\bs(\d{1,2})(?:e\d+|\b)', f"{final_download_url} {target_url} {clean_series_slug}", re.IGNORECASE)
                         season_num = season_match.group(1).zfill(2) if season_match else "01"
 
-                        # Use dest_path directly since it already points to the series directory
+                        # Route Season 02+ into a 'Season XX' subfolder if dest_path doesn't already end with one
+                        target_dir = dest_path
+                        if int(season_num) >= 2 and not re.search(r'Season\s*\d+$', dest_path.rstrip('/'), re.IGNORECASE):
+                            target_dir = os.path.join(dest_path, f"Season {season_num}")
+
                         filename = f"{sanitized_title} - S{season_num}E{ep_num.zfill(2)}.mkv"
-                        full_target_file_path = os.path.join(dest_path, filename)
+                        full_target_file_path = os.path.join(target_dir, filename)
 
                         DOWNLOAD_QUEUE.put({
                             "series_id": s_id,
@@ -689,15 +700,13 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		# =====================================================================
 		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
 		# =====================================================================
-		if self.path in ['/', '/index.html', '/feeds', '/logs', '/settings', '/queue']:
-			# Locate your original index.html static server file block
-			# and ensure it executes smoothly here
+		clean_path = self.path.split('?')[0].rstrip('/') or '/feeds'
+		if clean_path in ('/feeds', '/queue', '/logs', '/settings'):
 			try:
-				index_file_path = os.path.join(base_dir, 'index.html')
 				self.send_response(200)
-				self.send_header('Content-Type', 'text/html; charset=utf-8')
+				self.send_header('Content-Type', 'text/html')
 				self.end_headers()
-				with open(index_file_path, 'rb') as f:
+				with open(HTML_FILE, 'rb') as f:
 					self.wfile.write(f.read())
 			except Exception as e:
 				self.send_error(500, f"Dashboard extraction fault: {e}")
@@ -912,10 +921,15 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			series_friendly_name = data.get("name", config["series"][s_id].get("name", s_id))
 
 			# Safely map user text parameter updates
+			submitted_status = data.get("status", config["series"][s_id].get("status", "ongoing"))
+			if submitted_status not in ("ongoing", "complete"):
+				submitted_status = "ongoing"
+
 			config["series"][s_id].update({
 				"name": series_friendly_name,
 				"url": data.get("url"),
-				"path": series_folder_path
+				"path": series_folder_path,
+				"status": submitted_status
 			})
 
 			# 📋 THE PHYSICAL FILE PURGE SYSTEM
@@ -926,40 +940,46 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				# 🎯 ISOLATE THE PRUNED TARGETS: What was in the database, but is now missing from the checkboxes?
 				pruned_eps = existing_eps - submitted_eps
 
+				if pruned_eps:
+					config["series"][s_id]["status"] = "ongoing"
+
 				if pruned_eps and os.path.exists(series_folder_path):
+					import shutil
 					for ep_to_delete in pruned_eps:
 						log_message(f"[{s_id}] Pruning trigger activated. Evicting Episode {ep_to_delete} from storage drive...")
 
-						# Standardize the file lookup layout targets (e.g., E02 or Ep 2)
-						# This ensures we catch your standardised files safely
 						s_str = f"E{int(ep_to_delete):02d}"
 
 						try:
-							for filename in os.listdir(series_folder_path):
-								filename_lower = filename.lower()
+							for root, dirs, files in os.walk(series_folder_path):
+								# Check subdirectories first (such as .trickplay folders)
+								for dirname in list(dirs):
+									dir_lower = dirname.lower()
+									is_target_dir = (s_str.lower() in dir_lower) or \
+													(f"ep{ep_to_delete}" in dir_lower.replace(" ", "")) or \
+													(f"episode{ep_to_delete}" in dir_lower.replace(" ", ""))
 
-								# Check if the filename explicitly matches this exact episode signature
-								# e.g., "The Remarried Empress - S01E01.mkv"
-								is_target_file = (s_str.lower() in filename_lower) or \
-												 (f"ep{ep_to_delete}" in filename_lower.replace(" ", "")) or \
-												 (f"episode{ep_to_delete}" in filename_lower.replace(" ", ""))
+									if is_target_dir:
+										full_dir_path = os.path.join(root, dirname)
+										if os.path.exists(full_dir_path):
+											shutil.rmtree(full_dir_path)
+											dirs.remove(dirname)
+											log_message(f"[{s_id}] Successfully wiped physical directory cache: {dirname}")
 
-								if is_target_file:
-									full_target_file_path = os.path.join(series_folder_path, filename)
-									if os.path.exists(full_target_file_path):
-										# 🪓 UPGRADED: Handle directories (.trickplay) and single files (.nfo / .mkv) recursively
-										if os.path.isdir(full_target_file_path):
-											import shutil
-											shutil.rmtree(full_target_file_path)
-											log_message(f"[{s_id}] Successfully wiped physical directory cache: {filename}")
-										else:
-											os.remove(full_target_file_path)
+								# Check individual files (.mkv, .nfo, etc.)
+								for filename in files:
+									filename_lower = filename.lower()
+									is_target_file = (s_str.lower() in filename_lower) or \
+													 (f"ep{ep_to_delete}" in filename_lower.replace(" ", "")) or \
+													 (f"episode{ep_to_delete}" in filename_lower.replace(" ", ""))
+
+									if is_target_file:
+										full_file_path = os.path.join(root, filename)
+										if os.path.exists(full_file_path):
+											os.remove(full_file_path)
 											log_message(f"[{s_id}] Successfully deleted physical file asset: {filename}")
 						except Exception as disk_err:
 							log_message(f"[{s_id}] File eviction system filesystem alert: {disk_err}")
-
-				# Save the filtered surviving data records back into the active tracking profile
-				config["series"][s_id]["downloaded_episodes"] = sorted(list(submitted_eps), key=int)
 
 			write_uci_config(config)
 			log_message(f"Saved tracking profile changes for section: {series_friendly_name}")
