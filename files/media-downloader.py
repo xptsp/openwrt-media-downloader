@@ -227,38 +227,44 @@ def scan_existing_episodes():
 		write_uci_config(config)
 		log_message("System filesystem state synchronized. Corrupted tracking keys successfully removed.")
 
+	# 🚀 Return a structured response dictionary for the web API handler
+	return {"success": True, "changed": changed}
+
 ##############################################################################################
 def background_download_worker():
 	"""Independent background loop thread runner that sequentially extracts items
 
-	from the thread-safe queue matrix and processes them using download_url_file.
+	from the thread-safe queue matrix and processes them using completely isolated parameters.
 	"""
-	import time
-	global DOWNLOAD_QUEUE, PROGRESS_LOCK
+	import time, os
+	global DOWNLOAD_QUEUE
 
 	log_message("[Queue Engine] Thread initialization matrix active. Background download worker standing by...")
 
 	while True:
 		try:
-			# Blocks indefinitely until an item becomes available in the queue buffer arrays
+			# Blocks indefinitely until an item becomes available in the queue
 			task = DOWNLOAD_QUEUE.get()
 			
 			s_id = task.get("series_id")
 			ep_num = task.get("episode")
 			download_url = task.get("url")
-			dest_folder = task.get("path") # Hand off target path variable components
+			dest_folder = task.get("path")
 			series_name = task.get("series_name", s_id)
 			
 			log_message(f"[Queue Engine] Pulling task from buffer: Starting [{series_name}] Episode {ep_num}...")
 
-			# Execute your existing optimized downloader function directly inside this thread pipe
-			# Because this runs inside a background thread, the carriage-return parsing loop 
-			# updates ACTIVE_DOWNLOADS completely asynchronously while the UI stays 100% fluid!
-			success = download_url_file(download_url, os.path.dirname(dest_folder), series_name, ep_num)
+			# Extract the exact physical directory path structure safely
+			target_dir = os.path.dirname(dest_folder)
+
+			if dest_folder.lower().endswith(('.mkv', '.mp4', '.avi')):
+				target_folder = os.path.dirname(dest_folder)
+			else:
+				target_folder = dest_folder
+
+			success = download_url_file(download_url, target_folder, series_name, ep_num)
 
 			if success:
-				# 💾 ASYNCHRONOUS DATABASE COMMITTAL
-				# Safely write the successful download records back to UCI configuration maps
 				try:
 					live_config = read_uci_config()
 					if s_id in live_config.get("series", {}):
@@ -275,12 +281,11 @@ def background_download_worker():
 			else:
 				log_message(f"[Queue Engine] Alert: Download pipeline failed or aborted for [{series_name}] Ep {ep_num}.")
 
-			# Tell the queue infrastructure that the task transaction processing phase is completely finished
 			DOWNLOAD_QUEUE.task_done()
 
 		except Exception as fatal_worker_err:
 			log_message(f"[Queue Engine] Critical error encountered inside thread management core: {fatal_worker_err}")
-			time.sleep(5) # Cooldown buffer to prevent aggressive log flooding if something goes haywire
+			time.sleep(5)
 
 ##############################################################################################
 def download_url_file(url, dest_folder, series_name, ep_num):
@@ -429,170 +434,162 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 
 ##############################################################################################
 def run_downloader_cycle():
-	# Generate a short, unique runtime signature string based on the exact clock ticks
-	cycle_token = f"CYCLE-SIG-{int(time.time())}"
+    # Generate a short, unique runtime signature string based on the exact clock ticks
+    cycle_token = f"CYCLE-SIG-{int(time.time())}"
 
-	log_message(f"Starting scheduled web crawling sequence cycle... [{cycle_token}]")
-	scan_existing_episodes()
-	config = read_uci_config()
+    log_message(f"Starting scheduled web crawling sequence cycle... [{cycle_token}]")
+    scan_existing_episodes()
+    config = read_uci_config()
 
-	desktop_headers = {
-		'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-		'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-		'Accept-Language': 'en-US,en;q=0.5'
-	}
+    desktop_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+    }
 
-	for s_id, s_data in config["series"].items():
-		url = s_data.get('url', '')
-		dest_path = s_data.get('path', '')
-		if not url or not dest_path:
-			continue
+    for s_id, s_data in config["series"].items():
+        url = s_data.get('url', '')
+        dest_path = s_data.get('path', '')
+        if not url or not dest_path:
+            continue
 
-		try:
-			req = urllib.request.Request(url, headers=desktop_headers)
-			with urllib.request.urlopen(req) as res:
-				html = res.read().decode('utf-8', errors='ignore')
+        try:
+            req = urllib.request.Request(url, headers=desktop_headers)
+            with urllib.request.urlopen(req) as res:
+                html = res.read().decode('utf-8', errors='ignore')
 
-			with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
-				df.write(html)
+            with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
+                df.write(html)
 
-			content_start = html.find('class="entry-content"')
-			if content_start != -1:
-				content_end = html.find('class="recommended"', content_start)
-				if content_end == -1:
-					content_end = html.find('class="related"', content_start)
-				if content_end == -1:
-					content_end = html.find('</article>', content_start)
-				html = html[content_start:content_end] if content_end != -1 else html[content_start:]
+            # Trim recommendations out of the HTML map instantly
+            content_start = html.find('class="entry-content"')
+            if content_start != -1:
+                content_end = html.find('class="recommended"', content_start)
+                if content_end == -1:
+                    content_end = html.find('class="related"', content_start)
+                if content_end == -1:
+                    content_end = html.find('id="comments"', content_start)
+                if content_end == -1:
+                    content_end = html.find('</article>', content_start)
+                html = html[content_start:content_end] if content_end != -1 else html[content_start:]
 
-			links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
-			url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
-			series_slug = url_slug_match.group(1).strip() if url_slug_match else ""
+            # Extract ALL links inside the sanitized body block
+            links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+            url_slug_match = re.search(r'dramakey\.com/([^/]+)', url.lower())
+            if not url_slug_match:
+                url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
+            series_slug = url_slug_match.group(1).strip() if url_slug_match else ""
 
-			slug_words = [w for w in series_slug.split('-') if w not in ['s01', 's02', 'complete', 'korean', 'drama', 'series', 'tv', 'download']]
-			show_keyword = slug_words[-1] if slug_words else s_id
+            clean_series_slug = series_slug.replace('/', '').strip()
+            slug_words = [w for w in clean_series_slug.split('-') if w not in ['s01', 's02', 'complete', 'korean', 'drama', 'series', 'tv', 'download']]
+            show_keyword = slug_words[-1] if slug_words else s_id
 
-			for episode_page_url, link_text in links_found:
-				clean_text = re.sub(r'<[^>]*>', '', link_text).strip()
-				clean_text_lower = clean_text.lower()
-				url_lower = episode_page_url.lower()
+            for target_url, link_text in links_found:
+                clean_text = re.sub(r'<[^>]*>', '', link_text).strip()
+                clean_text_lower = clean_text.lower()
+                url_lower = target_url.lower()
 
-				if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/"]):
-					continue
+                if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/", "#comment"]):
+                    continue
 
-				name_match = (show_keyword in clean_text_lower) or (show_keyword in url_lower)
-				if not name_match:
-					continue
+                is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
+                if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
+                    continue
 
-				if not re.search(r'ep|episode|s\d+|down', clean_text_lower):
-					continue
+                if not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
+                    continue
 
-				#======================================================================
-				# 🎯 BOUNDS-CHECKED EPISODE PARSER
-				#======================================================================
-				ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
+                ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
+                if not ep_numbers:
+                    ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
+                if not ep_numbers:
+                    ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
 
-				if not ep_numbers:
-					ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
+                if not ep_numbers:
+                    continue
 
-				if not ep_numbers:
-					filename_only = url_lower.split('/')[-1]
-					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', filename_only) if int(n) <= 150]
+                for ep_num_raw in ep_numbers:
+                    ep_num = str(int(ep_num_raw))
 
-				if not ep_numbers:
-					continue
+                    live_config = read_uci_config()
+                    live_series_data = live_config["series"].get(s_id, {})
+                    live_downloaded = set(live_series_data.get('downloaded_episodes',))
 
-				for ep_num_raw in ep_numbers:
-					ep_num = str(int(ep_num_raw))
+                    if ep_num in live_downloaded:
+                        continue
 
-					live_config = read_uci_config()
-					live_series_data = live_config["series"].get(s_id, {})
-					live_downloaded = set(live_series_data.get('downloaded_episodes', []))
+                    log_message(f"[{s_id}] Direct download link found for Ep {ep_num}: {target_url}")
+                    
+                    final_download_url = None
 
-					if ep_num in live_downloaded:
-						continue
+                    # 🎯 THE DOWNLOADWELLA BYPASS VALVE
+                    # Connect to the landing layout, read its embedded variables, and post back to bypass the wait walls
+                    if "downloadwella.com" in url_lower or "downloawella.com" in url_lower:
+                        try:
+                            wella_req = urllib.request.Request(target_url, headers=desktop_headers)
+                            with urllib.request.urlopen(wella_req) as wella_res:
+                                locker_html = wella_res.read().decode('utf-8', errors='ignore')
 
-					log_message(f"[{s_id}] Target landing node located for Ep {ep_num}: {episode_page_url}")
+                            form_inputs = re.findall(r'name=["\'](op|id|rand|referer|method_free|method_premium)["\']\s+value=["\']([^"\']*)["\']', locker_html)
+                            form_data = {name: val for name, val in form_inputs}
 
-					try:
-						sub_req = urllib.request.Request(episode_page_url, headers=desktop_headers)
-						with urllib.request.urlopen(sub_req) as sub_res:
-							sub_html = sub_res.read().decode('utf-8', errors='ignore')
+                            if 'id' in form_data:
+                                form_data['op'] = 'download2'
+                                form_data['method_free'] = 'Free Download'
+                                if 'method_premium' in form_data:
+                                    del form_data['method_premium']
 
-						final_download_url = None
+                                encoded_data = urllib.parse.urlencode(form_data).encode('utf-8')
+                                post_req = urllib.request.Request(
+                                    target_url,
+                                    data=encoded_data,
+                                    headers={
+                                        'User-Agent': desktop_headers['User-Agent'],
+                                        'Content-Type': 'application/x-www-form-urlencoded',
+                                        'Referer': target_url
+                                    }
+                                )
+                                with urllib.request.urlopen(post_req) as post_res:
+                                    generated_html = post_res.read().decode('utf-8', errors='ignore')
+                                
+                                media_match = re.search(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', generated_html, re.IGNORECASE)
+                                if media_match:
+                                    final_download_url = media_match.group(1)
+                        except Exception as locker_err:
+                            log_message(f"[{s_id}] Failed intermediate locker generation pass: {locker_err}")
 
-						if "downloadwella.com" in episode_page_url or "downloawella.com" in episode_page_url:
-							form_inputs = re.findall(r'name=["\'](op|id|rand|referer|method_free|method_premium)["\']\s+value=["\']([^"\']*)["\']', sub_html)
-							form_data = {name: val for name, val in form_inputs}
+                    # Fall back to direct media streams if present and it wasn't a DownloadWella link
+                    if not final_download_url and target_url.lower().endswith(('.mkv', '.mp4', '.avi')):
+                        final_download_url = target_url
 
-							if 'id' in form_data:
-								form_data['op'] = 'download2'
-								form_data['method_free'] = 'Free Download'
-								if 'method_premium' in form_data:
-									del form_data['method_premium']
+                    if final_download_url:
+                        log_message(f"[{s_id}] True binary stream path resolved! Dispatching to background queue...")
 
-								encoded_data = urllib.parse.urlencode(form_data).encode('utf-8')
-								post_req = urllib.request.Request(
-									episode_page_url,
-									data=encoded_data,
-									headers={
-										'User-Agent': desktop_headers['User-Agent'],
-										'Content-Type': 'application/x-www-form-urlencoded',
-										'Referer': episode_page_url
-									}
-								)
-								with urllib.request.urlopen(post_req) as post_res:
-									generated_html = post_res.read().decode('utf-8', errors='ignore')
-								media_match = re.search(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', generated_html, re.IGNORECASE)
-								if media_match:
-									final_download_url = media_match.group(1)
+                        series_title = live_series_data.get('name', s_id)
+                        sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
 
-						if not final_download_url:
-							packed_match = re.search(r"eval\(function\(p,a,c,k,e,.*?\.split\('\|'\)\)\)", sub_html)
-							if packed_match:
-								log_message(f"[{s_id}] Obfuscated packer code encountered. Running client-side string extraction...")
-								try:
-									vars_match = re.search(r"\}\('(.*?)'\.split\('\|'\)\)", sub_html)
-									if vars_match:
-										word_dictionary = vars_match.group(1).split('|')
-										hls_segment = next((w for w in word_dictionary if "master" in w or "index" in w or "m3u8" in w), None)
-										cdn_host = next((w for w in word_dictionary if "delivery" in w or "storage" in w or "cdn" in w), None)
+                        # Extract season number from the resolved file URL, target URL, or series slug
+                        season_match = re.search(r'\bs(\d{1,2})(?:e\d+|\b)', f"{final_download_url} {target_url} {clean_series_slug}", re.IGNORECASE)
+                        season_num = season_match.group(1).zfill(2) if season_match else "01"
 
-										if hls_segment and cdn_host:
-											final_download_url = f"https://{cdn_host}.com/hls/{hls_segment}.m3u8"
-								except Exception as decrypt_err:
-									log_message(f"Decryption extractor failure: {decrypt_err}")
+                        # Use dest_path directly since it already points to the series directory
+                        filename = f"{sanitized_title} - S{season_num}E{ep_num.zfill(2)}.mkv"
+                        full_target_file_path = os.path.join(dest_path, filename)
 
-						if not final_download_url:
-							direct_links = re.findall(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', sub_html)
-							if direct_links:
-								final_download_url = direct_links[0]
+                        DOWNLOAD_QUEUE.put({
+                            "series_id": s_id,
+                            "episode": ep_num,
+                            "url": final_download_url,
+                            "path": full_target_file_path,
+                            "series_name": series_title
+                        })
+                    else:
+                        log_message(f"[{s_id}] Failed to automatically extract true video tokens for Ep {ep_num}.")
 
-						if final_download_url:
-							log_message(f"[{s_id}] Stream path resolved! Dispatching Ep {ep_num} to background queue...")
-							
-							# Calculate target localized storage elements cleanly
-							series_title = live_series_data.get('name', s_id)
-							sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
-							filename = f"{sanitized_title} - S01E{ep_num.zfill(2)}.mkv"
-							full_file_path = os.path.join(dest_path, filename)
+        except Exception as e:
+            log_message(f"[{s_id}] Main engine execution exception crash: {e}")
 
-							# 🚀 NON-BLOCKING QUEUE DISPATCH
-							DOWNLOAD_QUEUE.put({
-								"series_id": s_id,
-								"episode": ep_num,
-								"url": final_download_url,
-								"path": full_file_path,
-								"series_name": series_title
-							})
-						else:
-							log_message(f"[{s_id}] Failed to extract tokens for Ep {ep_num}.")
-					except Exception as sub_err:
-						log_message(f"[{s_id}] Error solving destination targets for ep {ep_num}: {sub_err}")
-		except Exception as e:
-			log_message(f"[{s_id}] Main engine execution exception crash: {e}")
-
-	log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
+    log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
 
 ##############################################################################################
 # Web Server handlers
@@ -692,7 +689,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		# =====================================================================
 		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
 		# =====================================================================
-		if self.path in ['/', '/index.html', '/feeds', '/logs', '/settings']:
+		if self.path in ['/', '/index.html', '/feeds', '/logs', '/settings', '/queue']:
 			# Locate your original index.html static server file block
 			# and ensure it executes smoothly here
 			try:
@@ -805,14 +802,26 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.end_headers()
 			return
 		#======================================================================
-		elif self.path == '/api/progress':
+		elif self.path.rstrip('/') == '/api/queue':
+			with DOWNLOAD_QUEUE.mutex:
+				queued_items = [
+					{
+						"series_name": item.get("series_name", item.get("series_id", "Unknown")),
+						"episode": item.get("episode", "?")
+					}
+					for item in list(DOWNLOAD_QUEUE.queue)
+				]
+			with progress_lock:
+				active_items = dict(ACTIVE_DOWNLOADS)
+
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
-			with progress_lock:
-				self.wfile.write(json.dumps(ACTIVE_DOWNLOADS).encode('utf-8'))
+			self.wfile.write(json.dumps({
+				"active": active_items,
+				"queued": queued_items
+			}).encode('utf-8'))
 			return
-		#======================================================================
 		else:
 			self.send_response(404)
 			self.end_headers()
@@ -961,14 +970,21 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			return
 		#======================================================================
-		elif self.path == '/api/scan':
+		elif self.path.rstrip('/') == '/api/scan-storage':
+			try:
+				result = scan_existing_episodes()
+				payload = result if isinstance(result, dict) else {"success": True}
+			except Exception as scan_err:
+				log_message(f"[API Error] /api/scan-storage failed: {scan_err}")
+				payload = {"success": False, "error": str(scan_err)}
+
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
-			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
-			threading.Thread(target=scan_existing_episodes).start()
+			self.wfile.write(json.dumps(payload).encode('utf-8'))
+			return
 		#======================================================================
-		elif self.path == '/api/download':
+		elif self.path == '/api/sync-updates':
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
@@ -978,6 +994,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		else:
 			self.send_response(404)
 			self.end_headers()
+
 	###########################################################################
 	def do_DELETE(self):
 		#======================================================================

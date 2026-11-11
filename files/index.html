@@ -7,14 +7,13 @@
 	<link rel="manifest" href="/manifest.json">
 	<meta name="theme-color" content="#28a745">
 	<link rel="icon" type="image/png" href="/app-icon.png">
-	<!-- Links to the clean standalone global styles -->
 	<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 	<div class="container">
 		<h1>
 			<img src="/app-icon.png" width="32" height="32" style="vertical-align: middle;">
-			<p id="mainTitle">Media Downloader</p>
+			<span id="mainTitle">Media Downloader</span>
 		</h1>
 
 		<!-- Unified Hyperlink Navigation System Bar -->
@@ -22,6 +21,7 @@
 			<div style="display: flex; gap: 8px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 				<a href="/feeds" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Feeds</a>
+				<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
 				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
 				<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
 			</div>
@@ -43,39 +43,47 @@
 					<tbody></tbody>
 				</table>
 			</div>
-			<div class="btn-group" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; gap: 10px; width: 100%;">
-				<div style="display: flex; gap: 8px;">
-					<button type="button" class="secondary-btn" onclick="triggerAction('/api/scan')" style="margin: 0; width: auto;">🔍 Scan Storage Paths</button>
-					<button type="button" class="success-btn" onclick="triggerAction('/api/download')" style="margin: 0; width: auto;">📥 Sync Updates Now</button>
-				</div>
-				<button class="success-btn" onclick="openAddSeriesModal()" style="width: auto; padding: 8px 14px; font-size: 0.9rem; margin: 0;">➕ Add Series</button>
+			<div class="btn-group" style="margin-top: 20px;">
+				<button type="button" class="secondary-btn" onclick="triggerStorageScan()">💾 Scan Storage Paths</button>
+				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔫 Sync Updates Now</button>
+				<button type="button" class="secondary-btn" onclick="openAddSeriesModal()" style="background: #28a745;">➕ Add Series</button>
 			</div>
 		</div>
 
-		<!-- TAB 2: Live Activity Logs Terminal View -->
-		<div id="logs-tab" class="tab-content">
-			<!-- 📥 STATUS CAPTURE SHIELD: Renders cleanly at the top when active -->
-			<div id="logProgressWrapper" style="display:none; margin-bottom:15px; padding:12px; background:#1e1e1e; color:#fff; border-radius:6px; border-left:4px solid #28a745;">
-				<div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem; font-family:monospace;">
-					<span id="logProgressTaskName">📥 Initializing network stream...</span>
-					<span id="logProgressTaskPercent" style="color:#28a745; font-weight:bold;">0%</span>
-				</div>
-				<div style="width:100%; background:#333; height:8px; border-radius:4px; overflow:hidden;">
-					<div id="logProgressBar" style="width:0%; background:#28a745; height:100%; transition:width 0.3s ease;"></div>
-				</div>
+		<!-- TAB 2: QUEUE VIEW CONTAINER -->
+		<div id="queue-tab" class="tab-content">
+			<div class="table-responsive">
+				<table id="queueTable">
+					<thead>
+						<tr>
+							<th>Series</th>
+							<th>Episode</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody id="queueTableBody">
+						<tr>
+							<td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td>
+						</tr>
+					</tbody>
+				</table>
 			</div>
+		</div>
 
-			<!-- Live scrolling runtime diagnostic terminal window -->
-			<div id="logTerminal" class="log-terminal">Loading engine runtime logs...</div>
+		<!-- TAB 3: Live Activity Logs Terminal View -->
+		<div id="logs-tab" class="tab-content">
+			<!-- 🖥️ Real-Time Log Terminal Buffer Canvas Box -->
+			<div id="logTerminal" class="log-terminal"></div>
 
 			<!-- Bottom-aligned global utility controls bar -->
 			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
 				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
+				<button type="button" class="secondary-btn" onclick="triggerCopyLogsAction(this)" style="width: auto; background: #007bff; color: white; margin: 0;">📋 Copy Logs</button>
 				<button type="button" class="secondary-btn remove-btn" onclick="triggerClearLogsAction()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Logs</button>
 			</div>
 		</div>
 
-		<!-- TAB 3: Program Configuration Panel -->
+		<!-- TAB 4: Program Configuration Panel -->
 		<div id="settings-tab" class="tab-content">
 			<form id="configForm">
 				<div id="storagePanel" class="storage-panel">
@@ -113,7 +121,7 @@
 						</div>
 					</div>
 				</div>
-				<div style="margin-top: 20px;">
+				<div class="settings-mobile-dock log-actions">
 					<button type="submit" class="success-btn">💾 Save Base Configuration</button>
 				</div>
 			</form>
@@ -244,7 +252,8 @@
 			const tabMap = {
 				'feeds-tab': '/feeds',
 				'logs-tab': '/logs',
-				'settings-tab': '/settings'
+				'settings-tab': '/settings',
+				'queue-tab': '/queue'
 			};
 			const targetUrl = tabMap[tabId] || '/feeds';
 
@@ -253,6 +262,16 @@
 			document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
 
 			document.getElementById(tabId).classList.add('active');
+
+			// 4. Manage polling intervals (only poll when the tab is visible)
+			if (typeof logInterval !== 'undefined' && logInterval) {
+				clearInterval(logInterval);
+				logInterval = null;
+			}
+			if (typeof queueInterval !== 'undefined' && queueInterval) {
+				clearInterval(queueInterval);
+				queueInterval = null;
+			}
 
 			const targetBtn = document.querySelector(`.tab-nav .tab-btn[onclick*='${tabId}']`);
 			if (targetBtn) targetBtn.classList.add('active');
@@ -267,24 +286,91 @@
 			if (tabId === 'logs-tab') {
 				fetchEngineLogs();
 				logInterval = setInterval(fetchEngineLogs, 3000);
+			} else if (tabId === 'queue-tab') {
+				fetchQueueStatus();
+				logInterval = setInterval(fetchQueueStatus, 1000);
 			}
 		};
 
 		const handleInitialUrlRouting = () => {
-			const path = window.location.pathname;
-			if (path === '/logs') {
-				switchTab('logs-tab', false);
-			} else if (path === '/settings') {
-				switchTab('settings-tab', false);
-			} else {
-				switchTab('feeds-tab', false);
-			}
+			const path = window.location.pathname.replace(/\/+$/, '') || '/feeds';
+			const pathToTab = {
+				'/feeds': 'feeds-tab',
+				'/queue': 'queue-tab',
+				'/logs': 'logs-tab',
+				'/settings': 'settings-tab'
+			};
+			const tabId = pathToTab[path] || 'feeds-tab';
+			switchTab(tabId, false);
 			loadDashboardData();
 		};
 
 		// =====================================================================
 		// 5. API CORE INTERACTIONS & DATA SYNC
 		// =====================================================================
+		window.triggerStorageScan = () => {
+			showToast("Initializing filesystem path directory scan...", true);
+			
+			fetch('/api/scan-storage', { method: 'POST' })
+				.then(res => {
+					// Read as raw text first to inspect the data stream length safely
+					return res.text().then(text => {
+						if (!text || text.trim() === "") {
+							console.warn("Backend API warning: Server returned an empty response string.");
+							return { success: false, error: "Empty server response received." };
+						}
+						try {
+							return JSON.parse(text);
+						} catch (jsonErr) {
+							console.error("Malformed payload caught:", text);
+							return { success: false, error: "Invalid JSON structure encountered." };
+						}
+					});
+				})
+				.then(data => {
+					if (data && data.success) {
+						showToast("Storage space mapping complete.");
+						if (window.updateStorageDashboardMetrics && data.storage) {
+							window.updateStorageDashboardMetrics(data.storage);
+						}
+					} else {
+						const errorMsg = data.error || "Failed to finalize drive tracking scan.";
+						showToast(errorMsg, false);
+					}
+				})
+				.catch(err => {
+					console.error("Storage tracker pipeline crash:", err);
+					showToast("Communication link disruption encountered.", false);
+				});
+		};
+
+		// 🔫 BACKEND CRAWLER DISPATCH
+		window.triggerSyncUpdates = () => {
+			showToast("Deploying web parsing sequence updates...", true);
+
+			fetch('/api/sync-updates', { method: 'POST' })
+				.then(res => {
+					if (!res.ok) throw new Error(`HTTP ${res.status}`);
+					return res.text();
+				})
+				.then(text => {
+					const data = text ? JSON.parse(text) : { status: "success" };
+					if (data.status === "success" || data.success) {
+						showToast("Automated harvesting cycle executing in background.");
+						// 🚀 Switch straight to the Queue tab to monitor active & pending downloads
+						if (typeof switchTab === 'function') {
+							switchTab('queue-tab');
+						}
+					} else {
+						showToast(data.error || "Sync cycle rejected by server.", false);
+					}
+				})
+				.catch(err => {
+					console.error("Sync parsing init failure:", err);
+					showToast("Failed to hand off operation to downloader.", false);
+				});
+		};
+
 		const loadDashboardData = async () => {
 			try {
 				const res = await fetch('/api/series');
@@ -414,39 +500,77 @@
 			}
 		};
 
+		const fetchQueueStatus = () => {
+			const tbody = document.getElementById('queueTableBody');
+			if (!tbody) return;
+
+			fetch('/api/queue')
+				.then(res => res.ok ? res.json() : null)
+				.then(data => {
+					if (!data) return;
+					const activeEntries = Object.entries(data.active || {});
+					const queuedList = data.queued || [];
+
+					if (activeEntries.length === 0 && queuedList.length === 0) {
+						tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td></tr>';
+						return;
+					}
+
+					let rowsHtml = '';
+
+					activeEntries.forEach(([name, info]) => {
+						const pct = typeof info === 'object' ? (info.percent || 0) : info;
+						const epLabel = (typeof info === 'object' && info.episode) ? `Ep ${info.episode}` : 'Active';
+						rowsHtml += `<tr>
+							<td><strong>${name}</strong></td>
+							<td>${epLabel}</td>
+							<td><span class="status-badge" style="background: var(--primary-success);">⬇️ ${pct}%</span></td>
+						</tr>`;
+					});
+
+					queuedList.forEach(item => {
+						rowsHtml += `<tr>
+							<td>${item.series_name}</td>
+							<td>Ep ${item.episode}</td>
+							<td><span class="status-badge" style="background: var(--secondary-gray);">⏳ Queued</span></td>
+						</tr>`;
+					});
+
+					tbody.innerHTML = rowsHtml;
+				})
+				.catch(() => {});
+		};
+
 		const fetchEngineLogs = async () => {
 			try {
 				const res = await fetch('/api/logs');
-				const logs = await res.json();
+				if (!res.ok) return;
+				const data = await res.json();
 				const terminal = document.getElementById('logTerminal');
-
-				if (logs.length === 0) {
-					terminal.innerText = "No logged actions registered yet.";
-				} else {
-					terminal.innerText = logs.join('\n');
-					terminal.scrollTop = terminal.scrollHeight;
+				if (terminal) {
+					const isAtBottom = terminal.scrollHeight - terminal.clientHeight <= terminal.scrollTop + 30;
+					terminal.textContent = Array.isArray(data) ? data.join('\n') : (data.logs ?? String(data));
+					if (isAtBottom) terminal.scrollTop = terminal.scrollHeight;
 				}
-
-				const progRes = await fetch('/api/progress');
-				const activeJobs = await progRes.json();
-				const wrapper = document.getElementById('logProgressWrapper');
-
-				const downloadingShows = Object.keys(activeJobs);
-				if (downloadingShows.length === 0) {
-					wrapper.style.display = 'none';
-					return;
-				}
-
-				const activeShowKey = downloadingShows[0];
-				const currentJob = activeJobs[activeShowKey];
-
-				wrapper.style.display = 'block';
-				document.getElementById('logProgressTaskName').innerText = `📥 Downloading: ${activeShowKey} (Episode ${currentJob.episode})`;
-				document.getElementById('logProgressTaskPercent').innerText = `${currentJob.pct}%`;
-				document.getElementById('logProgressBar').style.width = `${currentJob.pct}%`;
-
 			} catch (err) {
-				console.error("Engine logs or progress metrics retrieval failure:", err);
+				console.error("Engine logs retrieval failure:", err);
+			}
+		};
+
+		const triggerCopyLogsAction = async (btnElement) => {
+			const logText = document.getElementById('logTerminal').innerText;
+			
+			try {
+				await navigator.clipboard.writeText(logText);
+				
+				const originalText = btnElement.innerText;
+				btnElement.innerText = "✅ Copied!";
+				showToast("Logs copied to clipboard successfully.");
+				
+				setTimeout(() => { btnElement.innerText = originalText; }, 2000);
+			} catch (err) {
+				console.error("Clipboard copy failure:", err);
+				showToast("Failed to copy logs automatically.", false);
 			}
 		};
 
@@ -632,7 +756,6 @@
 			}
 		});
 
-		// ⌨️ Keyboard Escape Key Closer
 		// ⌨️ Keyboard Escape Key Closer
 		window.addEventListener('keydown', (e) => {
 			if (e.key === 'Escape' || e.key === 'Esc') {

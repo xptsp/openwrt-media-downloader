@@ -11,9 +11,26 @@
     --warning-orange: #ffc107;
     --warning-orange-hover: #e0a800;
     --dark-bg: #1e1e1e;
+
+    /* ☀️ DEFAULT LIGHT MODE MATRICES */
     --light-border: #dee2e6;
     --text-main: #333333;
     --text-muted: #6c757d;
+    --bg-container: #ffffff;
+    --bg-body-fallback: #f8f9fa;
+    --table-header-bg: #f8f9fa;
+    --table-hover-row: #fafbfc;
+}
+
+/* 🌙 HIGH-CONTRAST DARK MODE OVERRIDES matrix */
+:root[data-theme="dark"] {
+    --light-border: #333333;
+    --text-main: #f8f9fa;
+    --text-muted: #a2b4c7;
+    --bg-container: #181818;
+    --bg-body-fallback: #121212;
+    --table-header-bg: #222222;
+    --table-hover-row: #1c1c1c;
 }
 
 * {
@@ -25,13 +42,13 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     color: var(--text-main);
-    
+
     /* 🖼️ RESTORE GLOBAL UI WALLPAPER: Link up the background asset endpoint */
     background-image: url('./wallpaper.webp');
     background-attachment: fixed;
     background-size: cover;
     background-position: center;
-    
+
     line-height: 1.5;
     padding: 20px 10px;
 }
@@ -39,18 +56,19 @@ body {
 .container {
     max-width: 1100px;
     margin: 0 auto;
-    background: #ffffff;
+    background: var(--bg-container); /* 🚀 Bound dynamically */
     padding: 25px;
     border-radius: 8px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
-h1 {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 1.8rem;
-    margin-bottom: 25px;
+th {
+    background-color: var(--table-header-bg); /* 🚀 Bound dynamically */
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 0.78rem;
+    letter-spacing: 0.5px;
 }
 
 h2 {
@@ -141,7 +159,7 @@ th {
 }
 
 tr:hover {
-    background-color: #fafbfc;
+    background-color: var(--table-hover-row); /* 🚀 Bound dynamically */
 }
 
 .series-link {
@@ -216,11 +234,6 @@ button {
     box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
 }
 
-.log-actions {
-    display: flex;
-    justify-content: flex-end;
-}
-
 .storage-panel {
     background-color: #f8f9fa;
     border: 1px solid var(--light-border);
@@ -246,7 +259,9 @@ button {
     border: 1px solid var(--light-border);
     border-radius: 4px;
     font-family: inherit;
-    font-size: 0.95rem;
+}
+
+font-size: 0.95rem;
 }
 
 .storage-text {
@@ -359,7 +374,6 @@ button {
    7. 📱 COMPREHENSIVE RESPONSIVE MOBILIZER ENGINE (1024px VIEWPORT CLAMP)
    ========================================================================== */
 @media screen and (max-width: 1024px) {
-    /* Hard-drop the selected structural columns from the rendering engine instantly */
     .mobile-hide,
     #seriesTable th:nth-child(1),
     #seriesTable th:nth-child(3),
@@ -368,35 +382,30 @@ button {
         display: none !important;
     }
 
-    /* Enforce rigid 2-column tabular mapping behavior layout maps */
     table, thead, tbody {
         display: table !important;
         width: 100% !important;
     }
 
-    /* 📏 RESTORE MOBILE ROW LINES: Force borders onto the row elements themselves */
     #seriesTable tr {
         display: table-row !important;
         border-bottom: 1px solid var(--light-border) !important;
     }
-    
-    #seriesTable th, 
+
+    #seriesTable th,
     #seriesTable td {
         display: table-cell !important;
         padding: 14px 8px !important;
         vertical-align: middle !important;
-        /* Clean up duplicate cell line rules to let the row border rule rule the layout */
-        border-bottom: none !important; 
+        border-bottom: none !important;
     }
 
-    /* Clamp the Actions cell container width to prevent floating layout drift */
     #seriesTable td:nth-child(4) {
         width: 1% !important;
         white-space: nowrap !important;
         text-align: right !important;
     }
 
-    /* Lock down action button spacing elements to standard sizing parameters */
     .action-btn {
         display: inline-block !important;
         width: auto !important;
@@ -407,7 +416,6 @@ button {
         border-radius: 4px !important;
     }
 
-    /* 🔄 SWAP POSITION RULES: Force cell to flex-row-reverse to put badge on the left */
     #seriesTable td.responsive-name-cell {
         display: flex !important;
         flex-direction: row-reverse !important;
@@ -415,7 +423,7 @@ button {
         align-items: center !important;
         gap: 8px !important;
         text-align: left !important;
-        border-bottom: none !important; /* Prevents double borders from flex conversion */
+        border-bottom: none !important;
     }
 
     #seriesTable td.responsive-name-cell .series-title-text {
@@ -423,7 +431,6 @@ button {
         margin: 0 !important;
     }
 
-    /* Paint the responsive status badge layout */
     #seriesTable td.responsive-name-cell::after {
         content: attr(data-latest);
         display: inline-block !important;
@@ -437,18 +444,214 @@ button {
         white-space: nowrap !important;
     }
 
-    /* Ensure the tab navbar remains a single responsive row on small devices */
     .tab-nav {
         gap: 4px !important;
     }
-    
+
     .tab-btn {
         padding: 8px 10px !important;
         font-size: 0.88rem !important;
     }
-    
+
     .logout-btn {
         padding: 8px 6px !important;
+    }
+}
+
+/* ==========================================================================
+   7. 📱 COMPREHENSIVE RESPONSIVE MOBILIZER ENGINE
+   ========================================================================== */
+
+/* 🛡️ TARGET MEDIA MOBILE REFINEMENT ENGINE (< 768px Viewports Only) */
+@media screen and (max-width: 767px) {
+    body {
+        background-image: none !important;
+        background-color: var(--bg-body-fallback) !important;
+        padding: 0 !important;
+    }
+
+    .container {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 100vh !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 16px 12px !important;
+    }
+
+    h1 {
+        margin-bottom: 16px !important;
+        font-size: 1.6rem !important;
+    }
+
+    /* 📌 Feeds Tab Fixed Management Dock Configuration */
+    #feeds-tab .btn-group {
+        position: fixed !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        padding: 12px 16px !important;
+        margin: 0 !important;
+        display: flex !important;
+        gap: 8px !important;
+        z-index: 150 !important;
+        border-top: 1px solid var(--light-border) !important;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08) !important;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    #feeds-tab .btn-group button {
+        flex: 1 !important;
+        margin: 0 !important;
+        padding: 12px 4px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        border-radius: 6px !important;
+    }
+
+    #feeds-tab .table-responsive {
+        padding-bottom: calc(75px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* 📌 Logs Tab Fixed Management Dock Configuration */
+    .log-actions {
+        position: fixed !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        padding: 12px 16px !important;
+        margin: 0 !important;
+        display: flex !important;
+        gap: 8px !important;
+        z-index: 150 !important;
+        border-top: 1px solid var(--light-border) !important;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08) !important;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .log-actions button {
+        flex: 1 !important;
+        margin: 0 !important;
+        padding: 12px 4px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        border-radius: 6px !important;
+    }
+
+    .log-terminal {
+        margin-bottom: calc(75px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* 🛡️ FORCE SETTINGS FOOTER ANCHOR PANEL MATRIX (< 767px Mobile Screens) */
+    #settings-tab .log-actions,
+    #settings_tab .log-actions {
+        position: fixed !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        padding: 12px 16px !important;
+        margin: 0 !important;
+        display: flex !important;
+        gap: 8px !important;
+        z-index: 150 !important;
+        border-top: 1px solid var(--light-border) !important;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08) !important;
+
+        /* Safe environment padding bounds for mobile gesture navigation handles */
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    #settings-tab .log-actions button,
+    #settings_tab .log-actions button {
+        flex: 1 !important;
+        margin: 0 !important;
+        padding: 12px 4px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        border-radius: 6px !important;
+    }
+
+    /* Pad out the settings container canvas base layer to prevent text cutoff anomalies */
+    #settings-tab,
+    #settings_tab {
+        padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .settings-mobile-dock {
+        position: fixed !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        padding: 12px 16px !important;
+        margin: 0 !important;
+        display: flex !important;
+        z-index: 150 !important;
+        border-top: 1px solid #dee2e6 !important;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08) !important;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    .settings-mobile-dock button {
+        flex: 1 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 12px 4px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        border-radius: 6px !important;
+    }
+
+    #feeds-tab .btn-group,
+    .log-actions,
+    .settings-mobile-dock {
+        background: var(--bg-container) !important; /* 🚀 Matches active theme panel canvas */
+    }
+}
+
+/* 🖥️ TARGET MEDIA DESKTOP REFINEMENT ENGINE (>= 768px Viewports Only) */
+@media screen and (min-width: 768px) {
+    .log-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 10px;
+    }
+
+    #settings-tab .log-actions,
+    #settings_tab .log-actions {
+        position: static !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+        margin-top: 25px !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border-top: none !important;
+    }
+    #settings-tab .log-actions button,
+    #settings_tab .log-actions button {
+        width: auto !important;
+        flex: initial !important;
+    }
+
+    .settings-mobile-dock {
+        position: static !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+        margin-top: 25px !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border-top: none !important;
+    }
+    .settings-mobile-dock button {
+        width: auto !important;
     }
 }
 
