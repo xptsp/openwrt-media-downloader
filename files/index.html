@@ -24,6 +24,7 @@
 			<div style="display: flex; gap: 8px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 				<a href="/feeds" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Feeds</a>
+				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
 				<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
 				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
 				<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
@@ -53,8 +54,39 @@
 			</div>
 		</div>
 
-		<!-- TAB 2: QUEUE VIEW CONTAINER -->
+		<!-- TAB 2: WATCHLIST VIEW CONTAINER -->
+		<div id="watchlist-tab" class="tab-content">
+			<h2>👀 Upcoming Watchlist</h2>
+			<div class="table-responsive">
+				<table id="watchlistTable">
+			<div class="table-responsive">
+				<table id="watchlistTable">
+					<thead>
+						<tr>
+							<th>Series Title</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
+					<tbody id="watchlistTableBody">
+						<tr>
+							<td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">No upcoming series on your watchlist.</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+
+			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+				<button type="button" class="success-btn" onclick="openAddWatchlistModal()">➕ Add to Watchlist</button>
+				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔄 Check Now</button>
+			</div>
+		</div>
+
+		<!-- TAB 3: QUEUE VIEW CONTAINER -->
 		<div id="queue-tab" class="tab-content">
+			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+				<button type="button" class="secondary-btn remove-btn" onclick="clearDownloadQueue()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Queue</button>
+				<button type="button" class="secondary-btn remove-btn" onclick="abortAllDownloads()" style="width: auto; background: var(--danger-red); margin: 0;">🛑 Stop &amp; Clear All</button>
+			</div>
 			<div class="table-responsive">
 				<table id="queueTable">
 					<thead>
@@ -71,9 +103,9 @@
 					</tbody>
 				</table>
 			</div>
-		</div>
+ 		</div>
 
-		<!-- TAB 3: Live Activity Logs Terminal View -->
+		<!-- TAB 4: Live Activity Logs Terminal View -->
 		<div id="logs-tab" class="tab-content">
 			<!-- 🖥️ Real-Time Log Terminal Buffer Canvas Box -->
 			<div id="logTerminal" class="log-terminal"></div>
@@ -86,7 +118,7 @@
 			</div>
 		</div>
 
-		<!-- TAB 4: Program Configuration Panel -->
+		<!-- TAB 5: Program Configuration Panel -->
 		<div id="settings-tab" class="tab-content">
 			<form id="configForm">
 				<div id="storagePanel" class="storage-panel">
@@ -179,6 +211,30 @@
 		</div>
 	</div>
 
+	<!-- MODAL 3: Uniform interactive confirmations framework window container -->
+	<div id="addWatchlistModal" class="modal-overlay">
+		<div class="modal-card">
+			<h3 id="watchTitle">👀 Add to Watchlist</h3>
+			<form id="watchlistForm">
+				<div class="form-group">
+					<label for="watchlistName">Series Title</label>
+					<input type="text" id="watchlistName" placeholder="e.g., Merry Berry Love" required>
+				</div>
+				<div class="form-group">
+					<label for="watchlistSource">Source Site</label>
+					<select id="watchlistSource">
+						<option value="thenkiri.com">thenkiri.com</option>
+						<option value="dramakey.com">dramakey.com</option>
+					</select>
+				</div>
+				<div class="modal-buttons">
+					<button type="button" class="secondary-btn" onclick="closeAddWatchlistModal()">Cancel</button>
+					<button type="submit" class="success-btn">Save</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
 	<div id="customToast" class="toast-notification">Task dispatched...</div>
 
 	<script>
@@ -260,7 +316,8 @@
 				'feeds-tab': '/feeds',
 				'logs-tab': '/logs',
 				'settings-tab': '/settings',
-				'queue-tab': '/queue'
+				'queue-tab': '/queue',
+				'watchlist-tab': '/watchlist'
 			};
 			const targetUrl = tabMap[tabId] || '/feeds';
 
@@ -308,7 +365,8 @@
 				'/feeds': 'feeds-tab',
 				'/queue': 'queue-tab',
 				'/logs': 'logs-tab',
-				'/settings': 'settings-tab'
+				'/settings': 'settings-tab',
+				'/watchlist': 'watchlist-tab'
 			};
 			const tabId = pathToTab[path] || 'feeds-tab';
 			switchTab(tabId, false);
@@ -461,6 +519,48 @@
 					cell.style.setProperty('--badge-bg', cell.getAttribute('data-badge-color'));
 				});
 
+				const watchlistBody = document.getElementById('watchlistTableBody');
+				if (watchlistBody) {
+					const watchlistEntries = Object.entries(currentDashboardData.watchlist || {});
+					if (watchlistEntries.length === 0) {
+						watchlistBody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">No upcoming series on your watchlist.</td></tr>';
+					} else {
+						const grouped = {};
+						watchlistEntries.forEach(([wId, wData]) => {
+							const src = (wData.source || 'thenkiri.com').toLowerCase();
+							if (!grouped[src]) grouped[src] = [];
+							grouped[src].push([wId, wData]);
+						});
+
+						const sortedSources = Object.keys(grouped).sort();
+						let html = '';
+
+						sortedSources.forEach(src => {
+							grouped[src].sort((a, b) => (a[1].name || a[0]).localeCompare(b[1].name || b[0]));
+
+							// Server group header row spanning both columns
+							html += `<tr class="watchlist-group-header">
+								<td colspan="2" style="background: rgba(128, 128, 128, 0.12); font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px;">
+									🌐 ${src} (${grouped[src].length})
+								</td>
+							</tr>`;
+
+							// Two-column series rows under this server
+							grouped[src].forEach(([wId, wData]) => {
+								const safeName = (wData.name || wId).replace(/'/g, "\\'");
+								html += `<tr>
+									<td><strong>${wData.name || wId}</strong></td>
+									<td>
+										<button class="action-btn edit" onclick="openEditWatchlistModal('${wId}')">Edit</button>
+										<button class="action-btn remove" onclick="deleteWatchlistItem('${wId}', '${safeName}')">Remove</button>
+									</td>
+								</tr>`;
+							});
+						});
+
+						watchlistBody.innerHTML = html;
+					}
+				}
 			} catch (err) {
 				console.error("Dashboard primary mapping retrieval failure:", err);
 			}
@@ -510,47 +610,6 @@
 					}
 				}, 3000);
 			}
-		};
-
-		const fetchQueueStatus = () => {
-			const tbody = document.getElementById('queueTableBody');
-			if (!tbody) return;
-
-			fetch('/api/queue')
-				.then(res => res.ok ? res.json() : null)
-				.then(data => {
-					if (!data) return;
-					const activeEntries = Object.entries(data.active || {});
-					const queuedList = data.queued || [];
-
-					if (activeEntries.length === 0 && queuedList.length === 0) {
-						tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td></tr>';
-						return;
-					}
-
-					let rowsHtml = '';
-
-					activeEntries.forEach(([name, info]) => {
-						const pct = typeof info === 'object' ? (info.percent || 0) : info;
-						const epLabel = (typeof info === 'object' && info.episode) ? `Ep ${info.episode}` : 'Active';
-						rowsHtml += `<tr>
-							<td><strong>${name}</strong></td>
-							<td>${epLabel}</td>
-							<td><span class="status-badge" style="background: var(--primary-success);">⬇️ ${pct}%</span></td>
-						</tr>`;
-					});
-
-					queuedList.forEach(item => {
-						rowsHtml += `<tr>
-							<td>${item.series_name}</td>
-							<td>Ep ${item.episode}</td>
-							<td><span class="status-badge" style="background: var(--secondary-gray);">⏳ Queued</span></td>
-						</tr>`;
-					});
-
-					tbody.innerHTML = rowsHtml;
-				})
-				.catch(() => {});
 		};
 
 		const fetchEngineLogs = async () => {
@@ -615,7 +674,81 @@
 		};
 
 		// =====================================================================
-		// 6. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
+		// 6. QUEUE HANDLERS
+		// =====================================================================
+		const fetchQueueStatus = () => {
+			const tbody = document.getElementById('queueTableBody');
+			if (!tbody) return;
+
+			fetch('/api/queue')
+				.then(res => res.ok ? res.json() : null)
+				.then(data => {
+					if (!data) return;
+					const activeEntries = Object.entries(data.active || {});
+					const queuedList = data.queued || [];
+
+					if (activeEntries.length === 0 && queuedList.length === 0) {
+						tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td></tr>';
+						return;
+					}
+
+					let rowsHtml = '';
+
+					activeEntries.forEach(([name, info]) => {
+						const pct = typeof info === 'object' ? (info.percent || 0) : info;
+						const epLabel = (typeof info === 'object' && info.episode) ? `Ep ${info.episode}` : 'Active';
+						rowsHtml += `<tr>
+							<td><strong>${name}</strong></td>
+							<td>${epLabel}</td>
+							<td><span class="status-badge" style="background: var(--primary-success);">⬇️ ${pct}%</span></td>
+						</tr>`;
+					});
+
+					queuedList.forEach(item => {
+						rowsHtml += `<tr>
+							<td>${item.series_name}</td>
+							<td>Ep ${item.episode}</td>
+							<td><span class="status-badge" style="background: var(--secondary-gray);">⏳ Queued</span></td>
+						</tr>`;
+					});
+
+					tbody.innerHTML = rowsHtml;
+				})
+				.catch(() => {});
+		};
+
+		const clearDownloadQueue = () => {
+			showConfirmModal('🗑️ Clear Download Queue', 'Are you sure you want to remove all pending downloads from the queue? (The active download will finish.)', async () => {
+				const res = await fetch('/api/queue/clear', { method: 'POST' });
+				if (res.ok) {
+					const data = await res.json();
+					showToast(`Cleared ${data.cleared || 0} pending item(s) from queue.`);
+					if (typeof fetchQueueStatus === 'function') {
+						fetchQueueStatus();
+					}
+				} else {
+					showToast('Failed to clear download queue.', false);
+				}
+			});
+		};
+
+		const abortAllDownloads = () => {
+			showConfirmModal('🛑 Stop & Clear All Downloads', 'Are you sure you want to immediately terminate the active download and clear all pending items?', async () => {
+				const res = await fetch('/api/queue/abort', { method: 'POST' });
+				if (res.ok) {
+					const data = await res.json();
+					showToast(`Stopped active download and cleared ${data.cleared || 0} queued item(s).`);
+					if (typeof fetchQueueStatus === 'function') {
+						fetchQueueStatus();
+					}
+				} else {
+					showToast('Failed to abort downloads.', false);
+				}
+			});
+		};
+
+		// =====================================================================
+		// 7. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
 		// =====================================================================
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
@@ -758,7 +891,72 @@
 		};
 
 		// =====================================================================
-		// 7. CORE INITIALIZATION BOOTLOADER
+		// 8. WATCHLIST HANDLERS
+		// =====================================================================
+		let editWatchlistId = null;
+
+		const openAddWatchlistModal = () => {
+			editWatchlistId = null;
+			const titleEl = document.getElementById('watchlistModalTitle') || document.querySelector('#addWatchlistModal h3');
+			if (titleEl) titleEl.innerText = '👀 Add to Watchlist';
+			document.getElementById('watchlistForm').reset();
+			document.getElementById('addWatchlistModal').classList.add('active');
+		};
+
+		const openEditWatchlistModal = (wId) => {
+			const wData = currentDashboardData.watchlist && currentDashboardData.watchlist[wId];
+			if (!wData) return;
+
+			editWatchlistId = wId;
+			const titleEl = document.getElementById('watchlistModalTitle') || document.querySelector('#addWatchlistModal h3');
+			if (titleEl) titleEl.innerText = `⚙️ Edit Watchlist: ${wData.name || wId}`;
+
+			document.getElementById('watchlistName').value = wData.name || '';
+			document.getElementById('watchlistSource').value = wData.source || 'thenkiri.com';
+			document.getElementById('addWatchlistModal').classList.add('active');
+		};
+
+		const closeAddWatchlistModal = () => {
+			editWatchlistId = null;
+			document.getElementById('watchlistForm').reset();
+			document.getElementById('addWatchlistModal').classList.remove('active');
+		};
+
+		const deleteWatchlistItem = async (wId, friendlyName) => {
+			showConfirmModal('⚠️ Remove Watchlist Item', `Are you sure you want to stop watching for "${friendlyName}"?`, async () => {
+				await fetch(`/api/watchlist/${wId}`, { method: 'DELETE' });
+				await loadDashboardData();
+				showToast('Watchlist item removed successfully.');
+			});
+		};
+
+		document.getElementById('watchlistForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+			const name = document.getElementById('watchlistName').value.trim();
+			const source = document.getElementById('watchlistSource').value;
+			const targetId = editWatchlistId
+				? editWatchlistId
+				: name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');
+
+			if (!targetId || targetId === '-') {
+				showToast('Please enter a valid series title.', false);
+				return;
+			}
+
+			await fetch(`/api/watchlist/${targetId}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name, source })
+			});
+
+			const wasEditing = Boolean(editWatchlistId);
+			closeAddWatchlistModal();
+			showToast(wasEditing ? `Updated "${name}" on watchlist.` : `Added "${name}" to watchlist.`);
+			await loadDashboardData();
+		});
+
+		// =====================================================================
+		// 9. CORE INITIALIZATION BOOTLOADER
 		// =====================================================================
 		const handleIncomingShareTarget = () => {
 			const params = new URLSearchParams(window.location.search);
