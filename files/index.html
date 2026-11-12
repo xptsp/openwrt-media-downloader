@@ -23,7 +23,7 @@
 		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
 			<div style="display: flex; gap: 8px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
-				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Series</a>
+				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
 				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
 				<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
 				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
@@ -33,7 +33,7 @@
 		</div>
 
 		<!-- TAB 1: Monitored Feeds List -->
-		<div id="feeds-tab" class="tab-content">
+		<div id="series-tab" class="tab-content">
 			<div class="table-responsive">
 				<table id="seriesTable">
 					<thead>
@@ -122,31 +122,29 @@
 		<div id="settings-tab" class="tab-content">
 			<form id="configForm">
 				<div id="storagePanel" class="storage-panel">
+					<div class="storage-text">
+						<span>💽 Disk Storage</span>
+						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
+					</div>
+					<div class="progress-container" style="margin-bottom: 20px;">
+						<div id="storageBar" class="progress-bar"></div>
+					</div>
+
 					<div class="form-group">
 						<label>Default Base Directory:</label>
 						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
 					</div>
-
-					<div class="storage-text" style="margin-top: 20px;">
-						<span>💽 Disk Storage</span>
-						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
+					<div class="form-group">
+						<label for="settingNtfyTopic">🔔 Push Notification Topic (ntfy.sh)</label>
+						<div style="display: flex; gap: 8px;">
+							<input type="text" id="settingNtfyTopic" placeholder="Leave blank to disable (e.g., my-kdrama-downloader-9821)">
+							<button type="button" class="secondary-btn" onclick="sendTestNotification()" style="white-space: nowrap;">Test</button>
+						</div>
 					</div>
-					<div class="progress-container">
-						<div id="storageBar" class="progress-bar"></div>
+					<div class="form-group">
+						<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
+						<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
 					</div>
-				</div>
-				<div class="form-group">
-					<label for="settingNtfyTopic">🔔 Push Notification Topic (ntfy.sh)</label>
-					<div style="display: flex; gap: 8px;">
-						<input type="text" id="settingNtfyTopic" placeholder="Leave blank to disable (e.g., my-kdrama-downloader-9821)">
-						<button type="button" class="secondary-btn" onclick="sendTestNotification()" style="white-space: nowrap;">Test</button>
-					</div>
-				</div>
-				<div class="form-group">
-					<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
-					<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
-				</div>
-				<div class="storage-panel">
 					<div class="form-group">
 						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
 							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
@@ -168,21 +166,25 @@
 					</div>
 				</div>
 				<div class="settings-mobile-dock log-actions">
-					<button type="submit" class="success-btn">💾 Save Base Configuration</button>
+					<button type="submit" class="success-btn">💾 Save Configuration</button>
 				</div>
 			</form>
 		</div>
 	</div>
 
-	<!-- MODAL 1: Add New Series overlay box window layout -->
+	<!-- MODAL 1: Add New Series and Edit Series overlay box window layout -->
 	<div id="addSeriesModal" class="modal-overlay">
 		<div class="modal-card">
 			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
 			<form id="seriesForm">
 				<div class="form-group">
-					<label>Series Name:</label>
-					<input type="text" id="name" required placeholder="Summer Vacation (2026)">
+					<label for="name">Series Name</label>
+					<div style="display: flex; gap: 8px;">
+						<input type="text" id="name" placeholder="e.g., Merry Berry Love" required>
+						<button type="button" id="seriesSearchBtn" class="secondary-btn" onclick="searchSeriesUrl()" style="white-space: nowrap;">🔍 Search</button>
+					</div>
 				</div>
+				<div id="seriesSearchResults" style="display: none; margin-bottom: 15px; border: 1px solid var(--light-border); border-radius: 6px; max-height: 200px; overflow-y: auto;"></div>
 				<div class="form-group">
 					<label>Source URL:</label>
 					<input type="text" id="url" required placeholder="https://thenkiri.com...">
@@ -222,7 +224,7 @@
 		</div>
 	</div>
 
-	<!-- MODAL 3: Uniform interactive confirmations framework window container -->
+	<!-- MODAL 3: Watchlist modal container -->
 	<div id="addWatchlistModal" class="modal-overlay">
 		<div class="modal-card">
 			<h3 id="watchTitle">👀 Add to Watchlist</h3>
@@ -231,6 +233,7 @@
 					<label for="watchlistName">Series Title</label>
 					<input type="text" id="watchlistName" placeholder="e.g., Merry Berry Love" required>
 				</div>
+				<div id="watchlistSearchResults" style="display: none; margin-bottom: 15px; border: 1px solid var(--light-border); border-radius: 6px; max-height: 220px; overflow-y: auto;"></div>
 				<div class="form-group">
 					<label for="watchlistSource">Source Site</label>
 					<select id="watchlistSource">
@@ -372,14 +375,17 @@
 				await loadDashboardData();
 			}
 			const path = window.location.pathname.replace(/\/+$/, '') || '/series';
+			if (path === '/feeds') {
+				window.history.replaceState({}, '', '/series');
+			}
 			const pathToTab = {
-				'/series': 'feeds-tab',
+				'/series': 'series-tab',
 				'/queue': 'queue-tab',
 				'/logs': 'logs-tab',
 				'/settings': 'settings-tab',
 				'/watchlist': 'watchlist-tab'
 			};
-			const tabId = pathToTab[path] || 'feeds-tab';
+			const tabId = pathToTab[path] || 'series-tab';
 			switchTab(tabId, false);
 		};
 
@@ -976,13 +982,116 @@
 			}
 		};
 
+		const selectSearchResult = (title, url) => {
+			document.getElementById('url').value = url;
+
+			// Clean up site tags/season suffixes from the selected result title
+			const seasonMatch = title.match(/\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b/i);
+			const seasonFolder = seasonMatch ? `Season ${seasonMatch[1].padStart(2, '0')}` : '';
+
+			const cleanTitle = title
+				.replace(/\s*[-|–—:]\s*(?:Korean Drama|Chinese Drama|Thai Drama|TV Series|DramaKey|TheNkiri).*$/i, '')
+				.replace(/\s*[\(\[](?:19|20)\d{2}[\)\]]/g, '')
+				.replace(/\s*[\(\[](?:Complete|Ongoing|Episode\s*\d+[^)\]]*)[\)\]]/gi, '')
+				.replace(/\s+(?:S\d{1,2}|Season\s*\d+)\b.*$/i, '')
+				.trim();
+
+			if (cleanTitle) {
+				const nameField = document.getElementById('name');
+				nameField.value = cleanTitle;
+				nameField.dispatchEvent(new Event('input'));
+
+				const pathField = document.getElementById('path');
+				if (pathField && seasonFolder) {
+					const baseDir = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/hdd/KDramas';
+					const safeFolder = cleanTitle.replace(/[^a-zA-Z0-9\s.'-]/g, '').trim();
+					pathField.value = `${baseDir.replace(/\/+$/, '')}/${safeFolder}/${seasonFolder}`;
+				}
+			}
+
+			const resultsBox = document.getElementById('seriesSearchResults');
+			if (resultsBox) {
+				resultsBox.style.display = 'none';
+				resultsBox.innerHTML = '';
+			}
+			showToast('Series selected!');
+		};
+
+		const searchSeriesUrl = async () => {
+			const nameVal = document.getElementById('name').value.trim();
+			const resultsBox = document.getElementById('seriesSearchResults');
+			if (resultsBox) {
+				resultsBox.style.display = 'none';
+				resultsBox.innerHTML = '';
+			}
+
+			if (!nameVal) {
+				showToast('Enter a series name to search for first.', false);
+				return;
+			}
+
+			const btn = document.getElementById('seriesSearchBtn');
+			const originalText = btn ? btn.innerText : '🔍 Search';
+			if (btn) {
+				btn.disabled = true;
+				btn.innerText = '⏳...';
+			}
+
+			try {
+				const res = await fetch('/api/series/search', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name: nameVal })
+				});
+				const data = await res.json();
+
+				if (res.ok && data.matches && data.matches.length > 0) {
+					if (data.matches.length === 1) {
+						selectSearchResult(data.matches[0].title, data.matches[0].url);
+						showToast(`Found exact match on ${data.matches[0].source}!`);
+					} else if (resultsBox) {
+						resultsBox.innerHTML = `<div style="padding: 8px 12px; font-size: 0.85rem; font-weight: 600; background: rgba(128,128,128,0.12); border-bottom: 1px solid var(--light-border);">
+							Multiple matches found (${data.matches.length}) — tap one to select:
+						</div>` + data.matches.map((m, idx) => `
+							<div onclick="selectSearchResult(this.dataset.title, this.dataset.url)"
+								 data-title="${m.title.replace(/"/g, '&quot;')}"
+								 data-url="${m.url.replace(/"/g, '&quot;')}"
+								 style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.15); font-size: 0.9rem;">
+								<div style="font-weight: 600;">${m.title}</div>
+								<div style="font-size: 0.78rem; opacity: 0.75;">🌐 ${m.source}</div>
+							</div>
+						`).join('');
+						resultsBox.style.display = 'block';
+					}
+				} else {
+					showToast(data.message || 'No matching series found.', false);
+				}
+			} catch (err) {
+				showToast('Search request failed.', false);
+			} finally {
+				if (btn) {
+					btn.disabled = false;
+					btn.innerText = originalText;
+				}
+			}
+		};
+
 		// =====================================================================
 		// 8. WATCHLIST HANDLERS
 		// =====================================================================
 		let editWatchlistId = null;
 
+		const clearWatchlistSearchResults = () => {
+			const resultsBox = document.getElementById('watchlistSearchResults');
+			if (resultsBox) {
+				resultsBox.style.display = 'none';
+				resultsBox.innerHTML = '';
+			}
+		};
+
 		const openAddWatchlistModal = () => {
 			editWatchlistId = null;
+			clearWatchlistSearchResults();
 			const titleEl = document.getElementById('watchlistModalTitle') || document.querySelector('#addWatchlistModal h3');
 			if (titleEl) titleEl.innerText = '👀 Add to Watchlist';
 			document.getElementById('watchlistForm').reset();
@@ -994,6 +1103,7 @@
 			if (!wData) return;
 
 			editWatchlistId = wId;
+			clearWatchlistSearchResults();
 			const titleEl = document.getElementById('watchlistModalTitle') || document.querySelector('#addWatchlistModal h3');
 			if (titleEl) titleEl.innerText = `⚙️ Edit Watchlist: ${wData.name || wId}`;
 
@@ -1004,6 +1114,7 @@
 
 		const closeAddWatchlistModal = () => {
 			editWatchlistId = null;
+			clearWatchlistSearchResults();
 			document.getElementById('watchlistForm').reset();
 			document.getElementById('addWatchlistModal').classList.remove('active');
 		};
@@ -1020,6 +1131,68 @@
 			e.preventDefault();
 			const name = document.getElementById('watchlistName').value.trim();
 			const source = document.getElementById('watchlistSource').value;
+			const resultsBox = document.getElementById('watchlistSearchResults');
+
+			if (!name) {
+				showToast('Please enter a valid series title.', false);
+				return;
+			}
+
+			const saveBtn = e.target.querySelector('button[type="submit"]');
+			const originalBtnText = saveBtn ? saveBtn.innerText : 'Save';
+			if (saveBtn) {
+				saveBtn.disabled = true;
+				saveBtn.innerText = 'Checking...';
+			}
+
+			try {
+				const res = await fetch('/api/series/search', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name, source })
+				});
+				const data = await res.json().catch(() => ({}));
+
+				if (res.ok && data.matches && data.matches.length > 0 && resultsBox) {
+					resultsBox.innerHTML = `
+						<div style="padding: 8px 12px; font-size: 0.85rem; font-weight: 600; background: rgba(128,128,128,0.12); border-bottom: 1px solid var(--light-border);">
+							Already on ${source} (${data.matches.length}) — tap to promote to Feeds:
+						</div>
+						${data.matches.map(m => `
+							<div onclick="promoteWatchlistSearchMatch(this.dataset.title, this.dataset.url)"
+								 data-title="${m.title.replace(/"/g, '&quot;')}"
+								 data-url="${m.url.replace(/"/g, '&quot;')}"
+								 style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.15); font-size: 0.9rem;">
+								<div style="font-weight: 600;">${m.title}</div>
+								<div style="font-size: 0.78rem; opacity: 0.75;">🚀 Tap to add to Feeds &amp; download now</div>
+							</div>
+						`).join('')}
+						<div style="padding: 10px 12px; text-align: center; background: rgba(128,128,128,0.06);">
+							<button type="button" class="secondary-btn" style="width: 100%;"
+								data-name="${name.replace(/"/g, '&quot;')}"
+								data-source="${source.replace(/"/g, '&quot;')}"
+								onclick="saveToWatchlistDirect(this.dataset.name, this.dataset.source)">
+								None of these — Add to Watchlist anyway
+							</button>
+						</div>
+					`;
+					resultsBox.style.display = 'block';
+				} else {
+					// Not found on the site yet -> save directly to Watchlist
+					await saveToWatchlistDirect(name, source);
+				}
+			} catch (err) {
+				// Fallback to saving directly if the search request fails
+				await saveToWatchlistDirect(name, source);
+			} finally {
+				if (saveBtn) {
+					saveBtn.disabled = false;
+					saveBtn.innerText = originalBtnText;
+				}
+			}
+		});
+
+		const saveToWatchlistDirect = async (name, source) => {
 			const targetId = editWatchlistId
 				? editWatchlistId
 				: name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');
@@ -1039,8 +1212,65 @@
 			closeAddWatchlistModal();
 			showToast(wasEditing ? `Updated "${name}" on watchlist.` : `Added "${name}" to watchlist.`);
 			await loadDashboardData();
-			setTimeout(() => loadDashboardData(), 3500);
-		});
+		};
+
+		let isPromotingWatchlist = false;
+
+		const promoteWatchlistSearchMatch = async (title, url) => {
+			if (isPromotingWatchlist) return;
+			isPromotingWatchlist = true;
+
+			try {
+				// Extract Season 02+ if present and clean site suffixes
+				const seasonMatch = title.match(/\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b/i);
+				const seasonFolder = seasonMatch ? `Season ${seasonMatch[1].padStart(2, '0')}` : '';
+
+				const cleanTitle = title
+					.replace(/\s*[-|–—:]\s*(?:Korean Drama|Chinese Drama|Thai Drama|TV Series|DramaKey|TheNkiri).*$/i, '')
+					.replace(/\s*[\(\[](?:19|20)\d{2}[\)\]]/g, '')
+					.replace(/\s*[\(\[](?:Complete|Ongoing|Episode\s*\d+[^)\]]*)[\)\]]/gi, '')
+					.replace(/\s+(?:S\d{1,2}|Season\s*\d+)\b.*$/i, '')
+					.trim() || title;
+
+				const baseDir = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/hdd/KDramas';
+				const safeFolder = cleanTitle.replace(/[^a-zA-Z0-9\s.'-]/g, '').trim();
+				const destPath = seasonFolder
+					? `${baseDir.replace(/\/+$/, '')}/${safeFolder}/${seasonFolder}`
+					: `${baseDir.replace(/\/+$/, '')}/${safeFolder}`;
+
+				const seriesId = cleanTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');
+
+				const res = await fetch(`/api/series/${seriesId}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						name: cleanTitle,
+						url: url,
+						path: destPath,
+						status: 'ongoing',
+						skip_prune: true
+					})
+				});
+
+				if (res.ok) {
+					// If we were editing an existing watchlist entry, remove it now that it's promoted
+					if (editWatchlistId) {
+						await fetch(`/api/watchlist/${editWatchlistId}`, { method: 'DELETE' });
+					}
+					closeAddWatchlistModal();
+					showToast(`Promoted "${cleanTitle}" straight to Feeds!`);
+					await loadDashboardData();
+					if (typeof triggerSyncUpdates === 'function') {
+						triggerSyncUpdates();
+					}
+				} else {
+					const errData = await res.json().catch(() => ({}));
+					showToast(errData.message || 'Failed to promote series to Feeds.', false);
+				}
+			} finally {
+				isPromotingWatchlist = false;
+			}
+		};
 
 		// =====================================================================
 		// 9. CORE INITIALIZATION BOOTLOADER

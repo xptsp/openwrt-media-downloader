@@ -33,14 +33,17 @@ session_lock = threading.Lock()
 ##############################################################################################
 # Thread-safe queue containing dictionaries of tasks: {"series_id": ..., "episode": ..., "url": ..., "path": ...}
 DOWNLOAD_QUEUE = queue.Queue()
-ACTIVE_CURL_PROC = None
-ABORT_SYNC_FLAG = False
 
 # Shared dictionary to hold progress updates for the CGI frontend /api/progress endpoint
 ACTIVE_DOWNLOADS = {}
 
 # Thread lock to guarantee safe data mutations across parallel runtime loops
 PROGRESS_LOCK = threading.Lock()
+
+# Flags
+ACTIVE_CURL_PROC = None
+ABORT_SYNC_FLAG = False
+SYNC_LOCK = threading.Lock()
 
 ##############################################################################################
 # Supporting functions
@@ -497,6 +500,55 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 				ACTIVE_CURL_PROC = None
 
 ##############################################################################################
+def find_all_series_on_site(w_name, w_source, desktop_headers, use_search=True):
+	"""Returns a deduplicated list of all matching series links on a source site."""
+	clean_target = re.sub(r'[^a-z0-9\s]', '', w_name.lower()).strip()
+	if not clean_target:
+		return []
+
+	search_url = f"https://{w_source}/?s={urllib.parse.quote_plus(w_name)}" if use_search else f"https://{w_source}/"
+	results = []
+	seen_urls = set()
+
+	try:
+		req = urllib.request.Request(search_url, headers=desktop_headers)
+		with urllib.request.urlopen(req, timeout=15) as res:
+			html = res.read().decode("utf-8", errors="ignore")
+		links = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+
+		for href, raw_text in links:
+			href_clean = href.split('#')[0].rstrip('/') + '/'
+			href_lower = href_clean.lower()
+
+			if href_lower in seen_urls:
+				continue
+			if any(skip in href_lower for skip in ["/category/", "/tag/", "/feed/", "/page/", "?s=", "t.me", "tiktok.com", "x.com"]):
+				continue
+			if w_source not in href_lower or href_lower == f"https://{w_source}/":
+				continue
+
+			text_clean = re.sub(r'<[^>]*>', '', raw_text).strip()
+			text_norm = re.sub(r'[^a-z0-9\s]', '', text_clean.lower()).strip()
+
+			# Skip empty image-wrapper anchor tags that have no readable title text
+			if not text_norm or len(text_clean) < 3:
+				continue
+
+			if clean_target in text_norm:
+				seen_urls.add(href_lower)
+				# Clean up "Download " prefix from display title
+				display_title = re.sub(r'^(?:Download|Watch)\s+', '', text_clean, flags=re.IGNORECASE).strip()
+				results.append({
+					"title": display_title,
+					"url": href_clean,
+					"source": w_source
+				})
+	except Exception as err:
+		log_message(f"[Series Search] Failed querying {search_url}: {err}")
+
+	return results
+
+##############################################################################################
 def find_series_on_site(w_name, w_source, desktop_headers, cached_home_links=None, use_search=False):
 	"""Searches a source site's cached homepage (and optionally /?s= search) for a matching series URL."""
 	clean_target = re.sub(r'[^a-z0-9\s]', '', w_name.lower()).strip()
@@ -613,186 +665,196 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 	return promoted_any
 
 ##############################################################################################
+SYNC_LOCK = threading.Lock()
+
+
 def run_downloader_cycle():
-	global ABORT_SYNC_FLAG
-	ABORT_SYNC_FLAG = False
+	if not SYNC_LOCK.acquire(blocking=False):
+		log_message("[Sync Cycle] Sync cycle already in progress. Skipping duplicate trigger.")
+		return
 
-	# Generate a short, unique runtime signature string based on the exact clock ticks
-	cycle_token = f"CYCLE-SIG-{int(time.time())}"
+	try:
+		global ABORT_SYNC_FLAG
+		ABORT_SYNC_FLAG = False
 
-	log_message(f"Starting scheduled web crawling sequence cycle... [{cycle_token}]")
-	scan_existing_episodes()
+		# Generate a short, unique runtime signature string based on the exact clock ticks
+		cycle_token = f"CYCLE-SIG-{int(time.time())}"
 
-	desktop_headers = {
-		'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-		'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-		'Accept-Language': 'en-US,en;q=0.5'
-	}
+		log_message(f"Starting scheduled web crawling sequence cycle... [{cycle_token}]")
+		scan_existing_episodes()
 
-	check_watchlist_promotions(desktop_headers)
-	config = read_uci_config()
+		desktop_headers = {
+			'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+			'Accept-Language': 'en-US,en;q=0.5'
+		}
 
-	for s_id, s_data in config["series"].items():
-		if ABORT_SYNC_FLAG:
-			log_message(f"[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
-			break
+		check_watchlist_promotions(desktop_headers)
+		config = read_uci_config()
 
-		url = s_data.get('url', '')
-		dest_path = s_data.get('path', '')
-		if not url or not dest_path:
-			continue
+		for s_id, s_data in config["series"].items():
+			if ABORT_SYNC_FLAG:
+				log_message("[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
+				break
 
-		try:
-			req = urllib.request.Request(url, headers=desktop_headers)
-			with urllib.request.urlopen(req) as res:
-				html = res.read().decode('utf-8', errors='ignore')
+			if s_data.get('status') == 'complete':
+				continue
 
-			with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
-				df.write(html)
+			url = s_data.get('url', '')
+			dest_path = s_data.get('path', '')
+			if not url or not dest_path:
+				continue
 
-			# Trim recommendations out of the HTML map instantly
-			content_start = html.find('class="entry-content"')
-			if content_start != -1:
-				content_end = html.find('class="recommended"', content_start)
-				if content_end == -1:
-					content_end = html.find('class="related"', content_start)
-				if content_end == -1:
-					content_end = html.find('id="comments"', content_start)
-				if content_end == -1:
-					content_end = html.find('</article>', content_start)
-				html = html[content_start:content_end] if content_end != -1 else html[content_start:]
+			try:
+				req = urllib.request.Request(url, headers=desktop_headers)
+				with urllib.request.urlopen(req) as res:
+					html = res.read().decode('utf-8', errors='ignore')
 
-			# Extract ALL links inside the sanitized body block
-			links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
-			url_slug_match = re.search(r'dramakey\.com/([^/]+)', url.lower())
-			if not url_slug_match:
-				url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
-			series_slug = url_slug_match.group(1).strip() if url_slug_match else ""
+				with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
+					df.write(html)
 
-			clean_series_slug = series_slug.replace('/', '').strip()
-			slug_words = [w for w in clean_series_slug.split('-') if w not in ['s01', 's02', 'complete', 'korean', 'drama', 'series', 'tv', 'download']]
-			show_keyword = slug_words[-1] if slug_words else s_id
+				# Trim recommendations out of the HTML map instantly
+				content_start = html.find('class="entry-content"')
+				if content_start != -1:
+					content_end = html.find('class="recommended"', content_start)
+					if content_end == -1:
+						content_end = html.find('class="related"', content_start)
+					if content_end == -1:
+						content_end = html.find('id="comments"', content_start)
+					if content_end == -1:
+						content_end = html.find('</article>', content_start)
+					html = html[content_start:content_end] if content_end != -1 else html[content_start:]
 
-			for target_url, link_text in links_found:
-				if ABORT_SYNC_FLAG:
-					log_message(f"[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
-					break
+				# Extract ALL links inside the sanitized body block
+				links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+				url_slug_match = re.search(r'dramakey\.com/([^/]+)', url.lower())
+				if not url_slug_match:
+					url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
+				series_slug = url_slug_match.group(1).strip() if url_slug_match else ""
 
-				clean_text = re.sub(r'<[^>]*>', '', link_text).strip()
-				clean_text_lower = clean_text.lower()
-				url_lower = target_url.lower()
+				clean_series_slug = series_slug.replace('/', '').strip()
 
-				if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/", "#comment"]):
-					continue
-
-				is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
-				if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
-					continue
-
-				if not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
-					continue
-
-				ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
-				if not ep_numbers:
-					ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
-				if not ep_numbers:
-					ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
-
-				if not ep_numbers:
-					continue
-
-				for ep_num_raw in ep_numbers:
+				for target_url, link_text in links_found:
 					if ABORT_SYNC_FLAG:
+						log_message("[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
 						break
-					ep_num = str(int(ep_num_raw))
 
-					live_config = read_uci_config()
-					live_series_data = live_config["series"].get(s_id, {})
-					live_downloaded = set(live_series_data.get('downloaded_episodes',))
+					clean_text = re.sub(r'<[^>]*>', '', link_text).strip()
+					clean_text_lower = clean_text.lower()
+					url_lower = target_url.lower()
 
-					if ep_num in live_downloaded:
+					if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/", "#comment"]):
 						continue
 
-					log_message(f"[{s_id}] Direct download link found for Ep {ep_num}: {target_url}")
+					is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
+					if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
+						continue
 
-					# final_download_url = None
+					if not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
+						continue
 
-					# 🎯 THE DOWNLOADWELLA BYPASS VALVE
-					# Connect to the landing layout, read its embedded variables, and post back to bypass the wait walls
-					if "downloadwella.com" in url_lower or "downloawella.com" in url_lower:
-						try:
-							wella_req = urllib.request.Request(target_url, headers=desktop_headers)
-							with urllib.request.urlopen(wella_req) as wella_res:
-								locker_html = wella_res.read().decode('utf-8', errors='ignore')
+					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
+					if not ep_numbers:
+						ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
+					if not ep_numbers:
+						ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
 
-							form_inputs = re.findall(r'name=["\'](op|id|rand|referer|method_free|method_premium)["\']\s+value=["\']([^"\']*)["\']', locker_html)
-							form_data = {name: val for name, val in form_inputs}
+					if not ep_numbers:
+						continue
 
-							if 'id' in form_data:
-								form_data['op'] = 'download2'
-								form_data['method_free'] = 'Free Download'
-								if 'method_premium' in form_data:
-									del form_data['method_premium']
-
-								encoded_data = urllib.parse.urlencode(form_data).encode('utf-8')
-								post_req = urllib.request.Request(
-									target_url,
-									data=encoded_data,
-									headers={
-										'User-Agent': desktop_headers['User-Agent'],
-										'Content-Type': 'application/x-www-form-urlencoded',
-										'Referer': target_url
-									}
-								)
-								with urllib.request.urlopen(post_req) as post_res:
-									generated_html = post_res.read().decode('utf-8', errors='ignore')
-
-								media_match = re.search(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', generated_html, re.IGNORECASE)
-								if media_match:
-									final_download_url = media_match.group(1)
-						except Exception as locker_err:
-							log_message(f"[{s_id}] Failed intermediate locker generation pass: {locker_err}")
-
-					# Fall back to direct media streams if present and it wasn't a DownloadWella link
-					if not final_download_url and target_url.lower().endswith(('.mkv', '.mp4', '.avi')):
-						final_download_url = target_url
-
-					if final_download_url:
+					for ep_num_raw in ep_numbers:
 						if ABORT_SYNC_FLAG:
-							log_message(f"[{s_id}] Abort flag active. Dropping resolved Ep {ep_num} instead of queuing.")
 							break
+						ep_num = str(int(ep_num_raw))
 
-						log_message(f"[{s_id}] True binary stream path resolved! Dispatching to background queue...")
+						live_config = read_uci_config()
+						live_series_data = live_config["series"].get(s_id, {})
+						live_downloaded = set(live_series_data.get('downloaded_episodes', []))
 
-						series_title = live_series_data.get('name', s_id)
-						sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
+						if ep_num in live_downloaded:
+							continue
 
-						# Extract season number from the resolved file URL, target URL, or series slug
-						season_match = re.search(r'\bs(\d{1,2})(?:e\d+|\b)', f"{final_download_url} {target_url} {clean_series_slug}", re.IGNORECASE)
-						season_num = season_match.group(1).zfill(2) if season_match else "01"
+						log_message(f"[{s_id}] Direct download link found for Ep {ep_num}: {target_url}")
 
-						# Route Season 02+ into a 'Season XX' subfolder if dest_path doesn't already end with one
-						target_dir = dest_path
-						if int(season_num) >= 2 and not re.search(r'Season\s*\d+$', dest_path.rstrip('/'), re.IGNORECASE):
-							target_dir = os.path.join(dest_path, f"Season {season_num}")
+						final_download_url = None
 
-						filename = f"{sanitized_title} - S{season_num}E{ep_num.zfill(2)}.mkv"
-						full_target_file_path = os.path.join(target_dir, filename)
+						# 🎯 THE DOWNLOADWELLA BYPASS VALVE
+						if "downloadwella.com" in url_lower or "downloawella.com" in url_lower:
+							try:
+								wella_req = urllib.request.Request(target_url, headers=desktop_headers)
+								with urllib.request.urlopen(wella_req) as wella_res:
+									locker_html = wella_res.read().decode('utf-8', errors='ignore')
 
-						DOWNLOAD_QUEUE.put({
-							"series_id": s_id,
-							"episode": ep_num,
-							"url": final_download_url,
-							"path": full_target_file_path,
-							"series_name": series_title
-						})
-					else:
-						log_message(f"[{s_id}] Failed to automatically extract true video tokens for Ep {ep_num}.")
+								form_inputs = re.findall(r'name=["\'](op|id|rand|referer|method_free|method_premium)["\']\s+value=["\']([^"\']*)["\']', locker_html)
+								form_data = {name: val for name, val in form_inputs}
 
-		except Exception as e:
-			log_message(f"[{s_id}] Main engine execution exception crash: {e}")
+								if 'id' in form_data:
+									form_data['op'] = 'download2'
+									form_data['method_free'] = 'Free Download'
+									if 'method_premium' in form_data:
+										del form_data['method_premium']
 
-	log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
+									encoded_data = urllib.parse.urlencode(form_data).encode('utf-8')
+									post_req = urllib.request.Request(
+										target_url,
+										data=encoded_data,
+										headers={
+											'User-Agent': desktop_headers['User-Agent'],
+											'Content-Type': 'application/x-www-form-urlencoded',
+											'Referer': target_url
+										}
+									)
+									with urllib.request.urlopen(post_req) as post_res:
+										generated_html = post_res.read().decode('utf-8', errors='ignore')
+
+									media_match = re.search(r'href=["\'](https?://[^"\']+\.(?:mkv|mp4)[^"\']*)["\']', generated_html, re.IGNORECASE)
+									if media_match:
+										final_download_url = media_match.group(1)
+							except Exception as locker_err:
+								log_message(f"[{s_id}] Failed intermediate locker generation pass: {locker_err}")
+
+						# Fall back to direct media streams if present and it wasn't a DownloadWella link
+						if not final_download_url and target_url.lower().endswith(('.mkv', '.mp4', '.avi')):
+							final_download_url = target_url
+
+						if final_download_url:
+							if ABORT_SYNC_FLAG:
+								log_message(f"[{s_id}] Abort flag active. Dropping resolved Ep {ep_num} instead of queuing.")
+								break
+
+							log_message(f"[{s_id}] True binary stream path resolved! Dispatching to background queue...")
+
+							series_title = live_series_data.get('name', s_id)
+							sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
+
+							# Extract season number from the resolved file URL, target URL, or series slug
+							season_match = re.search(r'\bs(\d{1,2})(?:e\d+|\b)', f"{final_download_url} {target_url} {clean_series_slug}", re.IGNORECASE)
+							season_num = season_match.group(1).zfill(2) if season_match else "01"
+
+							# Route Season 02+ into a 'Season XX' subfolder if dest_path doesn't already end with one
+							target_dir = dest_path
+							if int(season_num) >= 2 and not re.search(r'Season\s*\d+$', dest_path.rstrip('/'), re.IGNORECASE):
+								target_dir = os.path.join(dest_path, f"Season {season_num}")
+
+							filename = f"{sanitized_title} - S{season_num}E{ep_num.zfill(2)}.mkv"
+							full_target_file_path = os.path.join(target_dir, filename)
+
+							DOWNLOAD_QUEUE.put({
+								"series_id": s_id,
+								"episode": ep_num,
+								"url": final_download_url,
+								"path": full_target_file_path,
+								"series_name": series_title
+							})
+						else:
+							log_message(f"[{s_id}] Failed to automatically extract true video tokens for Ep {ep_num}.")
+
+			except Exception as e:
+				log_message(f"[{s_id}] Main engine execution exception crash: {e}")
+
+		log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
+	finally:
+		SYNC_LOCK.release()
 
 ##############################################################################################
 # Web Server handlers
@@ -902,6 +964,12 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					self.wfile.write(f.read())
 			except Exception as e:
 				self.send_error(500, f"Dashboard extraction fault: {e}")
+			return
+		#======================================================================
+		elif self.path.rstrip('/') == '/feeds':
+			self.send_response(301)
+			self.send_header('Location', '/series')
+			self.end_headers()
 			return
 		#======================================================================
 		elif self.path == '/style.css':
@@ -1071,6 +1139,54 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			return
 		#======================================================================
+		elif self.path.rstrip('/') == '/api/series/search':
+			content_length = int(self.headers.get('Content-Length', 0))
+			data = json.loads(self.rfile.read(content_length).decode('utf-8')) if content_length > 0 else {}
+			query_title = (data.get("name") or "").strip()
+
+			if not query_title:
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Series name is required."}).encode('utf-8'))
+				return
+
+			config = read_uci_config()
+			allowed_raw = config["global"].get("allowed_domains", "thenkiri.com,dramakey.com")
+			allowed_list = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
+
+			headers = {
+				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+				'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				'Accept-Language': 'en-US,en;q=0.5'
+			}
+
+			target_source = (data.get("source") or "").strip().lower()
+			domains_to_search = [target_source] if (target_source and target_source in allowed_list) else allowed_list
+
+			all_matches = []
+			for domain in domains_to_search:
+				all_matches.extend(find_all_series_on_site(query_title, domain, headers, use_search=True))
+
+			if all_matches:
+				log_message(f"[Series Search] Found {len(all_matches)} match(es) for '{query_title}'.")
+				self.send_response(200)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "success",
+					"matches": all_matches
+				}).encode('utf-8'))
+			else:
+				self.send_response(404)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "not_found",
+					"message": f"No match found for '{query_title}' on {', '.join(allowed_list)}."
+				}).encode('utf-8'))
+			return
+		#======================================================================
 		elif self.path.startswith('/api/series/'):
 			s_id = self.path.split('/')[-1]
 			content_length = int(self.headers['Content-Length'])
@@ -1129,7 +1245,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			})
 
 			# 📋 THE PHYSICAL FILE PURGE SYSTEM
-			if "downloaded_episodes" in data:
+			if "downloaded_episodes" in data and not data.get("skip_prune"):
 				# Convert submitted numbers into standardized integers
 				submitted_eps = set(str(int(x)) for x in data.get("downloaded_episodes", []))
 
@@ -1248,20 +1364,6 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			}
 			write_uci_config(config)
 			log_message(f"[Watchlist] Added '{data.get('name', w_id)}' watching {source}.")
-
-			def immediate_watchlist_probe():
-				log_message(f"[Watchlist] Running immediate site search for '{w_id}'...")
-				headers = {
-					'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-					'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-					'Accept-Language': 'en-US,en;q=0.5'
-				}
-				if check_watchlist_promotions(headers, target_w_id=w_id, use_search=True):
-					run_downloader_cycle()
-				else:
-					log_message(f"[Watchlist] '{w_id}' not found yet on {source}. Keeping on watchlist.")
-
-			threading.Thread(target=immediate_watchlist_probe, daemon=True).start()
 
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')

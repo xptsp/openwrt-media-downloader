@@ -1,4 +1,6 @@
 #!/bin/bash
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Beginning Copy process..."
+
 scp ./files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader.py
 
 # Install web layout layer template

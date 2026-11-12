@@ -2,7 +2,7 @@
   "short_name": "Media Downloader",
   "name": "Media Downloader",
   "description": "Automated K-Drama & Series Downloader",
-  "start_url": "/feeds",
+  "start_url": "/series",
   "scope": "/",
   "display": "standalone",
   "background_color": "#121212",
