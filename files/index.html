@@ -135,6 +135,10 @@
 						<div id="storageBar" class="progress-bar"></div>
 					</div>
 				</div>
+				<div class="form-group">
+					<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
+					<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
+				</div>
 				<div class="storage-panel">
 					<div class="form-group">
 						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
@@ -561,6 +565,29 @@
 						watchlistBody.innerHTML = html;
 					}
 				}
+
+				document.getElementById('settingAllowedDomains').value = currentDashboardData.global.allowed_domains || 'thenkiri.com,dramakey.com';
+
+				const rawDomains = (currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
+				const allowedDomains = rawDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+
+				// Populate Settings input
+				const allowedInput = document.getElementById('settingAllowedDomains');
+				if (allowedInput) {
+					allowedInput.value = allowedDomains.join(', ');
+				}
+
+				// Dynamically sync Watchlist Source Site dropdown
+				const watchlistSelect = document.getElementById('watchlistSource');
+				if (watchlistSelect && allowedDomains.length > 0) {
+					const previousVal = watchlistSelect.value;
+					watchlistSelect.innerHTML = allowedDomains
+						.map(domain => `<option value="${domain}">${domain}</option>`)
+						.join('');
+					if (allowedDomains.includes(previousVal)) {
+						watchlistSelect.value = previousVal;
+					}
+				}
 			} catch (err) {
 				console.error("Dashboard primary mapping retrieval failure:", err);
 			}
@@ -763,6 +790,13 @@
 			let activeEpisodes = [];
 			let seriesStatus = 'ongoing';
 
+			const urlVal = document.getElementById('url').value.trim();
+			if (!isUrlAllowed(urlVal)) {
+				const allowedText = (currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com, dramakey.com';
+				showToast(`URL must be from an allowed domain: ${allowedText}`, false);
+				return;
+			}
+
 			if (editModeId) {
 				const checkedBoxes = document.querySelectorAll('input[name="modal_episodes"]:checked');
 				activeEpisodes = Array.from(checkedBoxes).map(cb => cb.value);
@@ -771,20 +805,27 @@
 				seriesStatus = (recheckBox && recheckBox.checked) ? 'ongoing' : 'complete';
 			}
 
-			await fetch(`/api/series/${targetId}`, {
+			const res = await fetch(`/api/series/${targetId}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: name,
-					url: document.getElementById('url').value.trim(),
+					url: urlVal,
 					path: pathInput.value.trim(),
 					downloaded_episodes: activeEpisodes,
 					status: seriesStatus
 				})
 			});
 
+			if (!res.ok) {
+				const errData = await res.json().catch(() => ({}));
+				showToast(errData.message || 'Server rejected the series configuration.', false);
+				return;
+			}
+
+			const wasEditing = Boolean(editModeId);
 			closeAddSeriesModal();
-			showToast(editModeId ? 'Media configuration updated successfully.' : 'New media feed added successfully.');
+			showToast(wasEditing ? 'Media feed updated successfully.' : 'New media feed added successfully.');
 			await loadDashboardData();
 		});
 
@@ -797,12 +838,26 @@
 					base_dir: baseDirInput.value.trim(),
 					auth_enabled: authCheckbox.checked ? "1" : "0",
 					auth_username: document.getElementById('auth_username').value.trim(),
-					auth_password: document.getElementById('auth_password').value.trim()
+					auth_password: document.getElementById('auth_password').value.trim(),
+					allowed_domains: document.getElementById('settingAllowedDomains').value.trim()
 				})
 			});
 			showToast('System application configuration saved successfully.');
 			await loadDashboardData();
 		});
+
+		const isUrlAllowed = (urlStr) => {
+			if (!urlStr) return false;
+			try {
+				const host = new URL(urlStr).hostname.toLowerCase().replace(/^www\./, '');
+				const rawList = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
+				const allowed = rawList.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+				if (allowed.length === 0) return true;
+				return allowed.some(d => host === d || host.endsWith('.' + d));
+			} catch (e) {
+				return false;
+			}
+		};
 
 		const openAddSeriesModal = () => {
 			editModeId = null;
@@ -969,6 +1024,11 @@
 			// Extract the URL (Android browsers often put the URL inside shared_text)
 			const urlMatch = `${sharedUrl} ${sharedText}`.match(/https?:\/\/[^\s]+/);
 			const extractedUrl = urlMatch ? urlMatch[0] : '';
+
+			if (!extractedUrl || !isUrlAllowed(extractedUrl)) {
+				showToast('Shared link is not from an allowed site.', false);
+				return;
+			}
 
 			// 1. Detect season number (S02, S03, Season 3, etc.) BEFORE stripping it from the title
 			const sharedSeasonMatch = sharedTitle.match(/\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b/i);

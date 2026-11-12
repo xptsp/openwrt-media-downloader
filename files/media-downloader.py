@@ -108,7 +108,8 @@ def read_uci_config():
 			"base_dir": "/mnt/sda1/Downloads",
 			"auth_enabled": "0",
 			"auth_username": "admin",
-			"auth_password": "admin"
+			"auth_password": "admin",
+			"allowed_domains": "thenkiri.com,dramakey.com"
 		},
 		"series": {},
 		"watchlist": {}
@@ -167,6 +168,7 @@ def write_uci_config(config_data):
 		f.write(f"    option auth_enabled '{config_data['global'].get('auth_enabled', '0')}'\n")
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
 		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n\n")
+		f.write(f"    option allowed_domains '{config_data['global'].get('allowed_domains', 'thenkiri.com,dramakey.com')}'\n")
 		for s_id, s_data in config_data["series"].items():
 			f.write(f"config series '{s_id}'\n")
 			f.write(f"    option name '{s_data.get('name', '')}'\n")
@@ -1018,6 +1020,11 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					config["global"]["auth_username"] = data["auth_username"]
 				if "auth_password" in data:
 					config["global"]["auth_password"] = data["auth_password"]
+				if "allowed_domains" in data:
+					# Normalize comma-separated domains (strip http://, www., and trailing slashes)
+					raw_domains = [d.strip().lower() for d in data["allowed_domains"].split(",") if d.strip()]
+					clean_domains = [re.sub(r'^https?://(www\.)?|/.*$', '', d) for d in raw_domains]
+					config["global"]["allowed_domains"] = ",".join(clean_domains)
 
 				write_uci_config(config)
 				self.send_response(200)
@@ -1033,9 +1040,6 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				return
 
 			# 🛡️ FIX: Added the clean bracket array properly to prevent SyntaxErrors
-			if s_id not in config["series"]:
-				config["series"][s_id] = {"downloaded_episodes": [], "last_update": "0"}
-
 			if s_id not in config["series"]:
 				config["series"][s_id] = {"downloaded_episodes": [], "last_update": "0"}
 
@@ -1105,6 +1109,23 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 						except Exception as disk_err:
 							log_message(f"[{s_id}] File eviction system filesystem alert: {disk_err}")
 
+			series_url = (data.get("url") or "").strip()
+			allowed_raw = config["global"].get("allowed_domains", "thenkiri.com,dramakey.com")
+			allowed_list = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
+
+			parsed_host = urllib.parse.urlparse(series_url).netloc.lower()
+			parsed_host = re.sub(r'^www\.', '', parsed_host)
+
+			if allowed_list and not any(parsed_host == d or parsed_host.endswith("." + d) for d in allowed_list):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "error",
+					"message": f"Domain '{parsed_host}' is not in your allowed sites list ({', '.join(allowed_list)})."
+				}).encode('utf-8'))
+				return
+
 			write_uci_config(config)
 			log_message(f"Saved tracking profile changes for section: {series_friendly_name}")
 
@@ -1146,9 +1167,12 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			data = json.loads(self.rfile.read(content_length).decode('utf-8'))
 			config = read_uci_config()
 
-			source = data.get("source", "thenkiri.com").strip().lower()
-			if source not in ("thenkiri.com", "dramakey.com"):
-				source = "thenkiri.com"
+			allowed_raw = config["global"].get("allowed_domains", "thenkiri.com,dramakey.com")
+			allowed_list = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
+
+			source = data.get("source", allowed_list[0] if allowed_list else "thenkiri.com").strip().lower()
+			if allowed_list and source not in allowed_list:
+				source = allowed_list[0]
 
 			config.setdefault("watchlist", {})[w_id] = {
 				"name": data.get("name", w_id).strip(),
