@@ -7,14 +7,6 @@
 
 ===========================================================================================
 
-• Completed Download Webhooks (Discord / Telegram)
-
-	Instead of checking the dashboard to see if an episode is ready, you can have your router message you directly the second an episode hits your disk.
-	- How it works: A simple 5-line urllib.request function triggers inside your file download success block.
-	- The Look: You get a smartphone notification: "📥 [HomeLab] Successfully downloaded The Divorce Insurance - Episode 6!"
-
-===========================================================================================
-
 • Global "Force All Re-downloads" Button
 
 	If a drive crashes or files are accidentally deleted locally, you currently have to manually clear out the downloaded_episodes tracking string for each show in /etc/config/media-downloader.

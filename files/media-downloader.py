@@ -54,7 +54,7 @@ def send_push_notification(title, message, tags="tv,white_check_mark"):
 
 	try:
 		req = urllib.request.Request(
-			f"https://ntfy.sh{urllib.parse.quote(topic)}",
+			f"https://ntfy.sh/{urllib.parse.quote(topic)}",
 			data=message.encode("utf-8"),
 			headers={
 				"Title": title,
