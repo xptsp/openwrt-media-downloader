@@ -45,6 +45,30 @@ PROGRESS_LOCK = threading.Lock()
 ##############################################################################################
 # Supporting functions
 ##############################################################################################
+def send_push_notification(title, message, tags="tv,white_check_mark"):
+	"""Sends an instant mobile push notification via ntfy.sh if a topic is configured."""
+	config = read_uci_config()
+	topic = config["global"].get("ntfy_topic", "").strip()
+	if not topic:
+		return False
+
+	try:
+		req = urllib.request.Request(
+			f"https://ntfy.sh{urllib.parse.quote(topic)}",
+			data=message.encode("utf-8"),
+			headers={
+				"Title": title,
+				"Tags": tags
+			},
+			method="POST"
+		)
+		with urllib.request.urlopen(req, timeout=8) as res:
+			return 200 <= res.status < 300
+	except Exception as notify_err:
+		log_message(f"[Notify Warning] Push alert failed: {notify_err}")
+		return False
+
+##############################################################################################
 def check_ffmpeg_available():
 	"""Dynamically probe the host OS to see if FFmpeg is installed in the PATH"""
 	import shutil
@@ -109,7 +133,8 @@ def read_uci_config():
 			"auth_enabled": "0",
 			"auth_username": "admin",
 			"auth_password": "admin",
-			"allowed_domains": "thenkiri.com,dramakey.com"
+			"allowed_domains": "thenkiri.com,dramakey.com",
+			"ntfy_topic": ""
 		},
 		"series": {},
 		"watchlist": {}
@@ -169,6 +194,7 @@ def write_uci_config(config_data):
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
 		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n\n")
 		f.write(f"    option allowed_domains '{config_data['global'].get('allowed_domains', 'thenkiri.com,dramakey.com')}'\n")
+		f.write(f"    option ntfy_topic '{config_data['global'].get('ntfy_topic', '')}'\n")
 		for s_id, s_data in config_data["series"].items():
 			f.write(f"config series '{s_id}'\n")
 			f.write(f"    option name '{s_data.get('name', '')}'\n")
@@ -299,9 +325,14 @@ def background_download_worker():
 						
 						live_config["series"][s_id]['downloaded_episodes'] = sorted(list(live_downloaded), key=int)
 						live_config["series"][s_id]['last_update'] = str(int(time.time()))
-						
+
 						write_uci_config(live_config)
 						log_message(f"[Queue Engine] Successfully committed Episode {ep_num} database tracking updates for '{series_name}'.")
+
+						send_push_notification(
+							"Episode Ready",
+							f"{series_name} - E{int(ep_num):02d} finished downloading."
+						)
 				except Exception as db_err:
 					log_message(f"[Queue Engine] Database record update hazard warning: {db_err}")
 			else:
@@ -542,6 +573,12 @@ def check_watchlist_promotions(desktop_headers):
 			del config["watchlist"][w_id]
 			promoted_any = True
 			log_message(f"[Watchlist] Match found on {w_source} for '{w_name}'! Promoted to Feeds ({matched_url}).")
+
+			send_push_notification(
+				"Watchlist Promoted",
+				f"'{w_name}' appeared on {w_source} and was promoted to Feeds!",
+				tags="eyes,rocket"
+			)
 
 	if promoted_any:
 		write_uci_config(config)
@@ -1025,6 +1062,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					raw_domains = [d.strip().lower() for d in data["allowed_domains"].split(",") if d.strip()]
 					clean_domains = [re.sub(r'^https?://(www\.)?|/.*$', '', d) for d in raw_domains]
 					config["global"]["allowed_domains"] = ",".join(clean_domains)
+				if "ntfy_topic" in data:
+					config["global"]["ntfy_topic"] = data["ntfy_topic"].strip()
 
 				write_uci_config(config)
 				self.send_response(200)
@@ -1237,6 +1276,14 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				"killed_active": killed_active,
 				"cleared": cleared_count
 			}).encode('utf-8'))
+			return
+		#======================================================================
+		elif self.path.rstrip('/') == '/api/notify/test':
+			success = send_push_notification("Test Notification", "Media Downloader push notifications are working!")
+			self.send_response(200 if success else 400)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"status": "success" if success else "error"}).encode('utf-8'))
 			return
 		#======================================================================
 		else:

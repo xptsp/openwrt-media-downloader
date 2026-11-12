@@ -136,6 +136,13 @@
 					</div>
 				</div>
 				<div class="form-group">
+					<label for="settingNtfyTopic">🔔 Push Notification Topic (ntfy.sh)</label>
+					<div style="display: flex; gap: 8px;">
+						<input type="text" id="settingNtfyTopic" placeholder="Leave blank to disable (e.g., my-kdrama-downloader-9821)">
+						<button type="button" class="secondary-btn" onclick="sendTestNotification()" style="white-space: nowrap;">Test</button>
+					</div>
+				</div>
+				<div class="form-group">
 					<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
 					<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
 				</div>
@@ -588,6 +595,11 @@
 						watchlistSelect.value = previousVal;
 					}
 				}
+
+				const ntfyInput = document.getElementById('settingNtfyTopic');
+				if (ntfyInput) {
+					ntfyInput.value = (currentDashboardData.global && currentDashboardData.global.ntfy_topic) || '';
+				}
 			} catch (err) {
 				console.error("Dashboard primary mapping retrieval failure:", err);
 			}
@@ -839,12 +851,27 @@
 					auth_enabled: authCheckbox.checked ? "1" : "0",
 					auth_username: document.getElementById('auth_username').value.trim(),
 					auth_password: document.getElementById('auth_password').value.trim(),
-					allowed_domains: document.getElementById('settingAllowedDomains').value.trim()
+					allowed_domains: document.getElementById('settingAllowedDomains').value.trim(),
+					ntfy_topic: document.getElementById('settingNtfyTopic').value.trim()
 				})
 			});
 			showToast('System application configuration saved successfully.');
 			await loadDashboardData();
 		});
+
+		const sendTestNotification = async () => {
+			const topic = document.getElementById('settingNtfyTopic').value.trim();
+			if (!topic) {
+				showToast('Enter an ntfy.sh topic name and save Settings first.', false);
+				return;
+			}
+			const res = await fetch('/api/notify/test', { method: 'POST' });
+			if (res.ok) {
+				showToast('Test push notification sent!');
+			} else {
+				showToast('Failed to send test notification. Make sure you saved Settings first.', false);
+			}
+		};
 
 		const isUrlAllowed = (urlStr) => {
 			if (!urlStr) return false;
