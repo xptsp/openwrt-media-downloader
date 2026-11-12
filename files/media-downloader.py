@@ -497,50 +497,31 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 				ACTIVE_CURL_PROC = None
 
 ##############################################################################################
-def check_watchlist_promotions(desktop_headers):
-	"""Checks the front pages of thenkiri.com / dramakey.com for watchlisted titles.
-	Promotes matches into active series feeds and removes them from the watchlist.
-	"""
-	config = read_uci_config()
-	watchlist = config.get("watchlist", {})
-	if not watchlist:
-		return
+def find_series_on_site(w_name, w_source, desktop_headers, cached_home_links=None, use_search=False):
+	"""Searches a source site's cached homepage (and optionally /?s= search) for a matching series URL."""
+	clean_target = re.sub(r'[^a-z0-9\s]', '', w_name.lower()).strip()
+	if not clean_target:
+		return None
 
-	# Group watchlist items by source so each homepage is fetched at most once per cycle
-	sources_needed = set(w.get("source", "thenkiri.com").lower() for w in watchlist.values())
-	homepage_links = {}
+	candidate_pages = []
+	if cached_home_links and w_source in cached_home_links:
+		candidate_pages.append(cached_home_links[w_source])
 
-	for src in sources_needed:
-		home_url = f"https://{src}/"
+	if use_search:
+		search_url = f"https://{w_source}/?s={urllib.parse.quote_plus(w_name)}"
 		try:
-			req = urllib.request.Request(home_url, headers=desktop_headers)
+			req = urllib.request.Request(search_url, headers=desktop_headers)
 			with urllib.request.urlopen(req, timeout=15) as res:
 				html = res.read().decode("utf-8", errors="ignore")
-			links = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
-			homepage_links[src] = links
+			search_links = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+			candidate_pages.append(search_links)
 		except Exception as err:
-			log_message(f"[Watchlist] Failed to fetch {home_url}: {err}")
+			log_message(f"[Watchlist] Search request failed for '{w_name}' on {w_source}: {err}")
 
-	promoted_any = False
-	base_dir = config["global"].get("base_dir", "/mnt/hdd/KDramas").rstrip("/")
-
-	for w_id in list(watchlist.keys()):
-		w_data = watchlist[w_id]
-		w_name = w_data.get("name", "").strip()
-		w_source = w_data.get("source", "thenkiri.com").lower()
-		if not w_name or w_source not in homepage_links:
-			continue
-
-		# Normalize title for reliable matching (ignores punctuation & extra spaces)
-		clean_target = re.sub(r'[^a-z0-9\s]', '', w_name.lower()).strip()
-		if not clean_target:
-			continue
-
-		matched_url = None
-		for href, raw_text in homepage_links[w_source]:
+	for links in candidate_pages:
+		for href, raw_text in links:
 			href_lower = href.lower()
-			# Skip category, tag, feed, and external links
-			if any(skip in href_lower for skip in ["/category/", "/tag/", "/feed/", "/page/", "t.me", "tiktok.com", "x.com"]):
+			if any(skip in href_lower for skip in ["/category/", "/tag/", "/feed/", "/page/", "?s=", "t.me", "tiktok.com", "x.com"]):
 				continue
 			if w_source not in href_lower or href_lower.rstrip("/") == f"https://{w_source}":
 				continue
@@ -549,8 +530,55 @@ def check_watchlist_promotions(desktop_headers):
 			text_norm = re.sub(r'[^a-z0-9\s]', '', text_clean.lower()).strip()
 
 			if clean_target in text_norm:
-				matched_url = href
-				break
+				return href
+
+	return None
+
+##############################################################################################
+def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=False):
+	"""Checks watchlisted titles against source sites, promotes matches to active Feeds,
+	removes them from Watchlist, and sends a push alert. Returns True if any item was promoted.
+	"""
+	config = read_uci_config()
+	watchlist = config.get("watchlist", {})
+	if not watchlist:
+		return False
+
+	items_to_check = [target_w_id] if (target_w_id and target_w_id in watchlist) else list(watchlist.keys())
+	if not items_to_check:
+		return False
+
+	# Fetch each needed homepage at most once (skip homepage fetch if doing a targeted single-item /?s= probe)
+	homepage_links = {}
+	if not (target_w_id and use_search):
+		sources_needed = set(watchlist[k].get("source", "thenkiri.com").lower() for k in items_to_check)
+		for src in sources_needed:
+			home_url = f"https://{src}/"
+			try:
+				req = urllib.request.Request(home_url, headers=desktop_headers)
+				with urllib.request.urlopen(req, timeout=15) as res:
+					html = res.read().decode("utf-8", errors="ignore")
+				homepage_links[src] = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+			except Exception as err:
+				log_message(f"[Watchlist] Failed to fetch {home_url}: {err}")
+
+	promoted_any = False
+	base_dir = config["global"].get("base_dir", "/mnt/hdd/KDramas").rstrip("/")
+
+	for w_id in items_to_check:
+		w_data = watchlist[w_id]
+		w_name = w_data.get("name", "").strip()
+		w_source = w_data.get("source", "thenkiri.com").lower()
+		if not w_name:
+			continue
+
+		matched_url = find_series_on_site(
+			w_name,
+			w_source,
+			desktop_headers,
+			cached_home_links=homepage_links,
+			use_search=use_search
+		)
 
 		if matched_url:
 			safe_folder = re.sub(r'[^a-zA-Z0-9\s.\'-]', '', w_name).strip()
@@ -561,7 +589,6 @@ def check_watchlist_promotions(desktop_headers):
 			else:
 				target_path = f"{base_dir}/{safe_folder}"
 
-			# Promote to active series and remove from watchlist
 			config["series"][w_id] = {
 				"name": w_name,
 				"url": matched_url,
@@ -582,6 +609,8 @@ def check_watchlist_promotions(desktop_headers):
 
 	if promoted_any:
 		write_uci_config(config)
+
+	return promoted_any
 
 ##############################################################################################
 def run_downloader_cycle():
@@ -863,8 +892,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		# =====================================================================
 		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
 		# =====================================================================
-		clean_path = self.path.split('?')[0].rstrip('/') or '/feeds'
-		if clean_path in ('/feeds', '/queue', '/logs', '/settings', '/watchlist'):
+		clean_path = self.path.split('?')[0].rstrip('/') or '/series'
+		if clean_path in ('/series', '/queue', '/logs', '/settings', '/watchlist'):
 			try:
 				self.send_response(200)
 				self.send_header('Content-Type', 'text/html')
@@ -1219,6 +1248,20 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			}
 			write_uci_config(config)
 			log_message(f"[Watchlist] Added '{data.get('name', w_id)}' watching {source}.")
+
+			def immediate_watchlist_probe():
+				log_message(f"[Watchlist] Running immediate site search for '{w_id}'...")
+				headers = {
+					'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+					'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+					'Accept-Language': 'en-US,en;q=0.5'
+				}
+				if check_watchlist_promotions(headers, target_w_id=w_id, use_search=True):
+					run_downloader_cycle()
+				else:
+					log_message(f"[Watchlist] '{w_id}' not found yet on {source}. Keeping on watchlist.")
+
+			threading.Thread(target=immediate_watchlist_probe, daemon=True).start()
 
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')

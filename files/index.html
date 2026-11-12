@@ -23,7 +23,7 @@
 		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
 			<div style="display: flex; gap: 8px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
-				<a href="/feeds" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Feeds</a>
+				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('feeds-tab')">📋 Series</a>
 				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
 				<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
 				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
@@ -324,13 +324,13 @@
 		// =====================================================================
 		const switchTab = (tabId, updateUrl = true) => {
 			const tabMap = {
-				'feeds-tab': '/feeds',
+				'series-tab': '/series',
 				'logs-tab': '/logs',
 				'settings-tab': '/settings',
 				'queue-tab': '/queue',
 				'watchlist-tab': '/watchlist'
 			};
-			const targetUrl = tabMap[tabId] || '/feeds';
+			const targetUrl = tabMap[tabId] || '/series';
 
 			// Toggle active styling states across views
 			document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -371,9 +371,9 @@
 			if (typeof loadDashboardData === 'function') {
 				await loadDashboardData();
 			}
-			const path = window.location.pathname.replace(/\/+$/, '') || '/feeds';
+			const path = window.location.pathname.replace(/\/+$/, '') || '/series';
 			const pathToTab = {
-				'/feeds': 'feeds-tab',
+				'/series': 'feeds-tab',
 				'/queue': 'queue-tab',
 				'/logs': 'logs-tab',
 				'/settings': 'settings-tab',
@@ -862,14 +862,18 @@
 		const sendTestNotification = async () => {
 			const topic = document.getElementById('settingNtfyTopic').value.trim();
 			if (!topic) {
-				showToast('Enter an ntfy.sh topic name and save Settings first.', false);
+				showToast('Enter an ntfy.sh topic name first.', false);
 				return;
 			}
-			const res = await fetch('/api/notify/test', { method: 'POST' });
+			const res = await fetch('/api/notify/test', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ topic })
+			});
 			if (res.ok) {
 				showToast('Test push notification sent!');
 			} else {
-				showToast('Failed to send test notification. Make sure you saved Settings first.', false);
+				showToast('Failed to send test notification. Check server logs.', false);
 			}
 		};
 
@@ -1035,6 +1039,7 @@
 			closeAddWatchlistModal();
 			showToast(wasEditing ? `Updated "${name}" on watchlist.` : `Added "${name}" to watchlist.`);
 			await loadDashboardData();
+			setTimeout(() => loadDashboardData(), 3500);
 		});
 
 		// =====================================================================
@@ -1101,7 +1106,7 @@
 			}
 
 			// Clean the query parameters from the URL bar
-			history.replaceState(null, '', '/feeds');
+			history.replaceState(null, '', '/series');
 		};
 
 		window.addEventListener('popstate', (e) => {
