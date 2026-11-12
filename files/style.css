@@ -91,14 +91,14 @@ code {
 .tab-nav {
     display: flex;
     flex-wrap: nowrap;
-    gap: 8px;
+    gap: 0px; /* Reduced from 8px — set to 0 if you want them touching */
     border-bottom: 2px solid var(--light-border);
-    margin-bottom: 25px;
+    margin-bottom: 0;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* Edge / IE */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 .tab-nav::-webkit-scrollbar {
@@ -108,10 +108,11 @@ code {
 .tab-btn {
     flex: 0 0 auto;
     white-space: nowrap;
-    background: none;
-    border: none;
+    padding: 9px 12px; /* Slightly tighter horizontal padding */
+    background-color: #f8f9fa;
+    border: 1px solid var(--light-border);
+    border-bottom: none;
     outline: none;
-    padding: 10px 16px;
     font-size: 0.95rem;
     font-weight: 600;
     color: var(--secondary-gray);
@@ -119,12 +120,19 @@ code {
     border-radius: 6px 6px 0 0;
     transition: all 0.2s ease;
     margin-bottom: 0;
+    text-decoration: none;
+}
+
+.tab-btn:hover {
+    color: #212529;
+    background-color: #e9ecef;
 }
 
 .tab-btn.active {
-    color: var(--primary-success);
-    border-bottom: 2px solid var(--primary-success);
-    background-color: #f8f9fa;
+    color: #000000;
+    background-color: #d4edda; /* Soft light green fill */
+    border-color: #28a745;
+    border-bottom: 2px solid #28a745;
 }
 
 .tab-content {
@@ -133,6 +141,30 @@ code {
 
 .tab-content.active {
     display: block;
+    padding-top: 0px;
+}
+
+.tab-content .table-responsive:first-child,
+.tab-content table:first-child {
+    margin-top: 0;
+}
+
+/* Dark Mode Tab Styling */
+body.dark-mode .tab-btn {
+    background-color: #252525;
+    border-color: #3a3a3a;
+    color: #b0b0b0;
+}
+
+body.dark-mode .tab-btn:hover {
+    background-color: #303030;
+    color: #000000;
+}
+
+body.dark-mode .tab-btn.active {
+    background-color: #1c3b24; /* Muted forest-green tint for dark mode */
+    border-color: #28a745;
+    border-bottom: 2px solid #28a745;
 }
 
 /* ==========================================================================
@@ -178,6 +210,29 @@ tr:hover {
 .series-link:hover {
     color: #003d80;
     text-decoration: underline;
+}
+
+/* Desktop & General Queue Table Scroll Container */
+#queue-tab .table-responsive {
+    max-height: 55vh;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--light-border);
+}
+
+#logs-tab {
+    padding-top: 0;
+    margin-top: 0;
+}
+
+#logs-tab > *:first-child,
+#logTerminal {
+    margin-top: 0;
+}
+
+#logTerminal {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
 }
 
 /* ==========================================================================

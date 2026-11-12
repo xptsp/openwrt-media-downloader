@@ -133,6 +133,7 @@ def read_uci_config():
 			"bind_address": "0.0.0.0",
 			"port": "8080",
 			"base_dir": "/mnt/sda1/Downloads",
+			"movies_dir": "/mnt/sda1/Movies",
 			"auth_enabled": "0",
 			"auth_username": "admin",
 			"auth_password": "admin",
@@ -193,6 +194,7 @@ def write_uci_config(config_data):
 		f.write(f"    option bind_address '{config_data['global'].get('bind_address', '0.0.0.0')}'\n")
 		f.write(f"    option port '{config_data['global'].get('port', '8080')}'\n")
 		f.write(f"    option base_dir '{config_data['global'].get('base_dir', '/mnt/sda1/Downloads')}'\n")
+		f.write(f"    option movies_dir '{config_data['global'].get('movies_dir', '/mnt/hdd/Movies')}'\n")
 		f.write(f"    option auth_enabled '{config_data['global'].get('auth_enabled', '0')}'\n")
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
 		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n\n")
@@ -205,12 +207,14 @@ def write_uci_config(config_data):
 			f.write(f"    option path '{s_data.get('path', '')}'\n")
 			f.write(f"    option status '{s_data.get('status', 'ongoing')}'\n")
 			f.write(f"    option last_update '{s_data.get('last_update', '0')}'\n")
+			f.write(f"    option type '{s_data.get('type', 'series')}'\n")
 			eps = ",".join(s_data.get('downloaded_episodes', []))
 			f.write(f"    option downloaded_episodes '{eps}'\n\n")
 		for w_id, w_data in config_data.get("watchlist", {}).items():
 			f.write(f"config watchlist '{w_id}'\n")
 			f.write(f"    option name '{w_data.get('name', '')}'\n")
 			f.write(f"    option source '{w_data.get('source', 'thenkiri.com')}'\n\n")
+			f.write(f"    option type '{s_data.get('type', 'series')}'\n")
 
 ##############################################################################################
 def scan_existing_episodes():
@@ -317,7 +321,8 @@ def background_download_worker():
 			else:
 				target_folder = dest_folder
 
-			success = download_url_file(download_url, target_folder, series_name, ep_num)
+			media_type = task.get("media_type", "series")
+			success = download_url_file(download_url, target_folder, series_name, ep_num, media_type)
 
 			if success:
 				try:
@@ -325,17 +330,27 @@ def background_download_worker():
 					if s_id in live_config.get("series", {}):
 						live_downloaded = set(live_config["series"][s_id].get('downloaded_episodes', []))
 						live_downloaded.add(ep_num)
-						
+
 						live_config["series"][s_id]['downloaded_episodes'] = sorted(list(live_downloaded), key=int)
 						live_config["series"][s_id]['last_update'] = str(int(time.time()))
+
+						if media_type == "movie":
+							live_config["series"][s_id]['status'] = "complete"
 
 						write_uci_config(live_config)
 						log_message(f"[Queue Engine] Successfully committed Episode {ep_num} database tracking updates for '{series_name}'.")
 
-						send_push_notification(
-							"Episode Ready",
-							f"{series_name} - E{int(ep_num):02d} finished downloading."
-						)
+						if media_type == "movie":
+							send_push_notification(
+								"Movie Ready",
+								f"{series_name} finished downloading.",
+								tags="clapper,white_check_mark"
+							)
+						else:
+							send_push_notification(
+								"Episode Ready",
+								f"{series_name} - E{int(ep_num):02d} finished downloading."
+							)
 				except Exception as db_err:
 					log_message(f"[Queue Engine] Database record update hazard warning: {db_err}")
 			else:
@@ -348,7 +363,7 @@ def background_download_worker():
 			time.sleep(5)
 
 ##############################################################################################
-def download_url_file(url, dest_folder, series_name, ep_num):
+def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"):
 	global ACTIVE_CURL_PROC
 	process = None
 	try:
@@ -374,7 +389,10 @@ def download_url_file(url, dest_folder, series_name, ep_num):
 		ext_match = re.search(r'\.(mkv|mp4|avi|mov)$', original_filename)
 		file_ext = ext_match.group(0) if ext_match else ".mkv"
 
-		standardized_name = f"{clean_series_name} - {s_str}{e_str}{file_ext}"
+		if media_type == "movie":
+			standardized_name = f"{clean_series_name}{file_ext}"
+		else:
+			standardized_name = f"{clean_series_name} - {s_str}{e_str}{file_ext}"
 		dest_path = os.path.join(dest_folder, standardized_name)
 
 		standardized_name = f"{clean_series_name} - {s_str}{e_str}{file_ext}"
@@ -633,19 +651,26 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 		)
 
 		if matched_url:
+			w_type = w_data.get("type", "series")
+			movies_dir = config["global"].get("movies_dir", "/mnt/hdd/Movies").rstrip("/")
 			safe_folder = re.sub(r'[^a-zA-Z0-9\s.\'-]', '', w_name).strip()
-			season_match = re.search(r'\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b', w_name, re.IGNORECASE)
-			if season_match:
-				base_show = re.sub(r'\s*(?:S|Season\s*)\d+.*$', '', safe_folder, flags=re.IGNORECASE).strip()
-				target_path = f"{base_dir}/{base_show}/Season {season_match.group(1).zfill(2)}"
+
+			if w_type == "movie":
+				target_path = f"{movies_dir}/{safe_folder}"
 			else:
-				target_path = f"{base_dir}/{safe_folder}"
+				season_match = re.search(r'\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b', w_name, re.IGNORECASE)
+				if season_match:
+					base_show = re.sub(r'\s*(?:S|Season\s*)\d+.*$', '', safe_folder, flags=re.IGNORECASE).strip()
+					target_path = f"{base_dir}/{base_show}/Season {season_match.group(1).zfill(2)}"
+				else:
+					target_path = f"{base_dir}/{safe_folder}"
 
 			config["series"][w_id] = {
 				"name": w_name,
 				"url": matched_url,
 				"path": target_path,
 				"status": "ongoing",
+				"type": w_type,
 				"last_update": "0",
 				"downloaded_episodes": []
 			}
@@ -666,7 +691,6 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 
 ##############################################################################################
 SYNC_LOCK = threading.Lock()
-
 
 def run_downloader_cycle():
 	if not SYNC_LOCK.acquire(blocking=False):
@@ -753,6 +777,11 @@ def run_downloader_cycle():
 					if not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
 						continue
 
+					is_movie = (s_data.get("type") == "movie")
+
+					if not is_movie and not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
+						continue
+
 					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
 					if not ep_numbers:
 						ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
@@ -760,7 +789,10 @@ def run_downloader_cycle():
 						ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
 
 					if not ep_numbers:
-						continue
+						if is_movie and (is_file_locker or "down" in clean_text_lower):
+							ep_numbers = ["1"]
+						else:
+							continue
 
 					for ep_num_raw in ep_numbers:
 						if ABORT_SYNC_FLAG:
@@ -844,7 +876,8 @@ def run_downloader_cycle():
 								"episode": ep_num,
 								"url": final_download_url,
 								"path": full_target_file_path,
-								"series_name": series_title
+								"series_name": series_title,
+								"media_type": "movie" if is_movie else "series"
 							})
 						else:
 							log_message(f"[{s_id}] Failed to automatically extract true video tokens for Ep {ep_num}.")
@@ -1196,6 +1229,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			if s_id == '_config':
 				if "base_dir" in data:
 					config["global"]["base_dir"] = data["base_dir"]
+				if "movies_dir" in data:
+					config["global"]["movies_dir"] = data["movies_dir"].strip()
 				if "auth_enabled" in data:
 					config["global"]["auth_enabled"] = str(data["auth_enabled"])
 				if "auth_username" in data:
@@ -1237,11 +1272,16 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			if submitted_status not in ("ongoing", "complete"):
 				submitted_status = "ongoing"
 
+			media_type = data.get("type", config["series"][s_id].get("type", "series"))
+			if media_type not in ("series", "movie"):
+				media_type = "series"
+
 			config["series"][s_id].update({
 				"name": series_friendly_name,
 				"url": data.get("url"),
 				"path": series_folder_path,
-				"status": submitted_status
+				"status": submitted_status,
+				"type": media_type
 			})
 
 			# 📋 THE PHYSICAL FILE PURGE SYSTEM
@@ -1358,9 +1398,14 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			if allowed_list and source not in allowed_list:
 				source = allowed_list[0]
 
+			media_type = data.get("type", "series")
+			if media_type not in ("series", "movie"):
+				media_type = "series"
+
 			config.setdefault("watchlist", {})[w_id] = {
 				"name": data.get("name", w_id).strip(),
-				"source": source
+				"source": source,
+				"type": media_type
 			}
 			write_uci_config(config)
 			log_message(f"[Watchlist] Added '{data.get('name', w_id)}' watching {source}.")

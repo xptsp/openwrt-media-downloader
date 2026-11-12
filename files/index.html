@@ -20,8 +20,8 @@
 		</h1>
 
 		<!-- Unified Hyperlink Navigation System Bar -->
-		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
-			<div style="display: flex; gap: 8px;">
+		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center; padding-top: 15px;">
+			<div style="display: flex; gap: 0px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
 				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
@@ -56,9 +56,6 @@
 
 		<!-- TAB 2: WATCHLIST VIEW CONTAINER -->
 		<div id="watchlist-tab" class="tab-content">
-			<h2>👀 Upcoming Watchlist</h2>
-			<div class="table-responsive">
-				<table id="watchlistTable">
 			<div class="table-responsive">
 				<table id="watchlistTable">
 					<thead>
@@ -83,10 +80,6 @@
 
 		<!-- TAB 3: QUEUE VIEW CONTAINER -->
 		<div id="queue-tab" class="tab-content">
-			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
-				<button type="button" class="secondary-btn remove-btn" onclick="clearDownloadQueue()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Queue</button>
-				<button type="button" class="secondary-btn remove-btn" onclick="abortAllDownloads()" style="width: auto; background: var(--danger-red); margin: 0;">🛑 Stop &amp; Clear All</button>
-			</div>
 			<div class="table-responsive">
 				<table id="queueTable">
 					<thead>
@@ -102,6 +95,10 @@
 						</tr>
 					</tbody>
 				</table>
+			</div>
+			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+				<button type="button" class="secondary-btn remove-btn" onclick="clearDownloadQueue()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Queue</button>
+				<button type="button" class="secondary-btn remove-btn" onclick="abortAllDownloads()" style="width: auto; background: var(--danger-red); margin: 0;">🛑 Stop &amp; Clear All</button>
 			</div>
  		</div>
 
@@ -131,8 +128,12 @@
 					</div>
 
 					<div class="form-group">
-						<label>Default Base Directory:</label>
+						<label>📺 Series Directory:</label>
 						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
+					</div>
+					<div class="form-group">
+						<label for="settingMoviesDir">🎬 Movies Directory</label>
+						<input type="text" id="settingMoviesDir" placeholder="/mnt/hdd/Movies">
 					</div>
 					<div class="form-group">
 						<label for="settingNtfyTopic">🔔 Push Notification Topic (ntfy.sh)</label>
@@ -177,6 +178,13 @@
 		<div class="modal-card">
 			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
 			<form id="seriesForm">
+				<div class="form-group">
+					<label for="mediaType">Media Type</label>
+					<select id="mediaType">
+						<option value="series">📺 TV Series</option>
+						<option value="movie">🎬 Movie</option>
+					</select>
+				</div>
 				<div class="form-group">
 					<label for="name">Series Name</label>
 					<div style="display: flex; gap: 8px;">
@@ -580,6 +588,7 @@
 				}
 
 				document.getElementById('settingAllowedDomains').value = currentDashboardData.global.allowed_domains || 'thenkiri.com,dramakey.com';
+				document.getElementById('settingMoviesDir').value = currentDashboardData.global.movies_dir || '/mnt/hdd/Movies';
 
 				const rawDomains = (currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
 				const allowedDomains = rawDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
@@ -611,52 +620,25 @@
 			}
 		};
 
-		const triggerAction = async (endpoint) => {
-			showToast('Processing request engine cycle...');
-			await fetch(endpoint, { method: 'POST' });
-
-			const logTabButton = document.querySelector(".tab-nav .tab-btn[onclick*='logs-tab']");
-			if (logTabButton) {
-				clearInterval(logInterval);
-
-				document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-				document.querySelectorAll('.tab-nav .tab-btn').forEach(el => el.classList.remove('active'));
-
-				document.getElementById('logs-tab').classList.add('active');
-				logTabButton.classList.add('active');
-
-				await fetchEngineLogs();
-
-				logInterval = setInterval(async () => {
-					await fetchEngineLogs();
-
-					const terminalText = document.getElementById('logTerminal').innerText;
-					const lines = terminalText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-					let latestToken = null;
-					let isLatestDone = false;
-
-					for (let i = lines.length - 1; i >= 0; i--) {
-						if (lines[i].includes("Starting scheduled web crawling sequence cycle...")) {
-							const tokenMatch = lines[i].match(/\[(CYCLE-SIG-\d+)\]/);
-							if (tokenMatch) { latestToken = tokenMatch[1]; break; }
-						}
-					}
-
-					if (latestToken) {
-						isLatestDone = terminalText.includes(`Scheduled sync parsing operation loop finalized. [${latestToken}]`);
-					}
-
-					if (isLatestDone) {
-						clearActivePolling();
-						showToast('Sync process complete! Updating feed records...');
-						document.getElementById('logProgressWrapper').style.display = 'none';
-						await loadDashboardData();
-					}
-				}, 3000);
-			}
+		const triggerSessionLogout = () => {
+			showConfirmModal(
+				'🔒 Really Log Out?',
+				'Are you sure you want to log out of the dashboard?',
+				() => { window.location.href = '/api/logout'; }
+			);
 		};
 
+		const deleteSeries = async (id, friendlyName) => {
+			showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
+				await fetch(`/api/series/${id}`, { method: 'DELETE' });
+				await loadDashboardData();
+				showToast('Series deleted successfully.');
+			});
+		};
+
+		// =====================================================================
+		// 6. LOG HANDLERS
+		// =====================================================================
 		const fetchEngineLogs = async () => {
 			try {
 				const res = await fetch('/api/logs');
@@ -675,14 +657,14 @@
 
 		const triggerCopyLogsAction = async (btnElement) => {
 			const logText = document.getElementById('logTerminal').innerText;
-			
+
 			try {
 				await navigator.clipboard.writeText(logText);
-				
+
 				const originalText = btnElement.innerText;
 				btnElement.innerText = "✅ Copied!";
 				showToast("Logs copied to clipboard successfully.");
-				
+
 				setTimeout(() => { btnElement.innerText = originalText; }, 2000);
 			} catch (err) {
 				console.error("Clipboard copy failure:", err);
@@ -702,24 +684,8 @@
 			);
 		};
 
-		const triggerSessionLogout = () => {
-			showConfirmModal(
-				'🔒 Really Log Out?',
-				'Are you sure you want to log out of the dashboard?',
-				() => { window.location.href = '/api/logout'; }
-			);
-		};
-
-		const deleteSeries = async (id, friendlyName) => {
-			showConfirmModal('⚠️ Remove Feed', `Are you sure you want to stop monitoring and delete "${friendlyName}"?`, async () => {
-				await fetch(`/api/series/${id}`, { method: 'DELETE' });
-				await loadDashboardData();
-				showToast('Series deleted successfully.');
-			});
-		};
-
 		// =====================================================================
-		// 6. QUEUE HANDLERS
+		// 7. QUEUE HANDLERS
 		// =====================================================================
 		const fetchQueueStatus = () => {
 			const tbody = document.getElementById('queueTableBody');
@@ -793,7 +759,7 @@
 		};
 
 		// =====================================================================
-		// 7. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
+		// 8. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
 		// =====================================================================
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
@@ -823,6 +789,8 @@
 				seriesStatus = (recheckBox && recheckBox.checked) ? 'ongoing' : 'complete';
 			}
 
+			const selectedMediaType = mediaTypeSelect ? mediaTypeSelect.value : 'series';
+
 			const res = await fetch(`/api/series/${targetId}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -831,7 +799,8 @@
 					url: urlVal,
 					path: pathInput.value.trim(),
 					downloaded_episodes: activeEpisodes,
-					status: seriesStatus
+					status: seriesStatus,
+					type: selectedMediaType
 				})
 			});
 
@@ -854,6 +823,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					base_dir: baseDirInput.value.trim(),
+					movies_dir: document.getElementById('settingMoviesDir').value.trim(),
 					auth_enabled: authCheckbox.checked ? "1" : "0",
 					auth_username: document.getElementById('auth_username').value.trim(),
 					auth_password: document.getElementById('auth_password').value.trim(),
@@ -906,6 +876,7 @@
 			
 			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
 			history.pushState({ modalOpen: true }, '', window.location.pathname + '#modal');
+			if (mediaTypeSelect) mediaTypeSelect.value = 'series';
 			document.getElementById('addSeriesModal').classList.add('active');
 		};
 
@@ -918,6 +889,9 @@
 			document.getElementById('name').value = sData.name || '';
 			document.getElementById('url').value = sData.url || '';
 			document.getElementById('path').value = sData.path || '';
+			if (mediaTypeSelect) {
+				mediaTypeSelect.value = sData.type || 'series';
+			}
 
 			// Show the status recheck toggle and set it based on current series status
 			const recheckWrapper = document.getElementById('modalRecheckWrapper');
@@ -1076,8 +1050,34 @@
 			}
 		};
 
+		const mediaTypeSelect = document.getElementById('mediaType');
+
+		const updateAutoSeriesPath = () => {
+			if (editModeId) return; // Don't overwrite custom paths when editing an existing entry
+
+			const rawName = nameInput.value.trim();
+			const selectedType = mediaTypeSelect ? mediaTypeSelect.value : 'series';
+
+			const seriesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/hdd/KDramas';
+			const moviesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.movies_dir) || '/mnt/hdd/Movies';
+			const activeBase = (selectedType === 'movie') ? moviesBase : seriesBase;
+
+			if (!rawName) {
+				pathInput.value = '';
+				return;
+			}
+
+			const safeFolder = rawName.replace(/[^a-zA-Z0-9\s.'-]/g, '').trim();
+			pathInput.value = `${activeBase.replace(/\/+$/, '')}/${safeFolder}`;
+		};
+
+		nameInput.addEventListener('input', updateAutoSeriesPath);
+		if (mediaTypeSelect) {
+			mediaTypeSelect.addEventListener('change', updateAutoSeriesPath);
+		}
+
 		// =====================================================================
-		// 8. WATCHLIST HANDLERS
+		// 9. WATCHLIST HANDLERS
 		// =====================================================================
 		let editWatchlistId = null;
 
@@ -1232,11 +1232,17 @@
 					.replace(/\s+(?:S\d{1,2}|Season\s*\d+)\b.*$/i, '')
 					.trim() || title;
 
-				const baseDir = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/hdd/KDramas';
+				const watchlistTypeEl = document.getElementById('watchlistType');
+				const selectedType = watchlistTypeEl ? watchlistTypeEl.value : 'series';
+
+				const seriesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/sda1/KDramas';
+				const moviesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.movies_dir) || '/mnt/sda1/KMovies';
+				const activeBase = (selectedType === 'movie') ? moviesBase : seriesBase;
+
 				const safeFolder = cleanTitle.replace(/[^a-zA-Z0-9\s.'-]/g, '').trim();
-				const destPath = seasonFolder
-					? `${baseDir.replace(/\/+$/, '')}/${safeFolder}/${seasonFolder}`
-					: `${baseDir.replace(/\/+$/, '')}/${safeFolder}`;
+				const destPath = (selectedType === 'series' && seasonFolder)
+					? `${activeBase.replace(/\/+$/, '')}/${safeFolder}/${seasonFolder}`
+					: `${activeBase.replace(/\/+$/, '')}/${safeFolder}`;
 
 				const seriesId = cleanTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');
 
@@ -1248,7 +1254,7 @@
 						url: url,
 						path: destPath,
 						status: 'ongoing',
-						skip_prune: true
+						type: selectedType
 					})
 				});
 
@@ -1273,7 +1279,7 @@
 		};
 
 		// =====================================================================
-		// 9. CORE INITIALIZATION BOOTLOADER
+		// 10. CORE INITIALIZATION BOOTLOADER
 		// =====================================================================
 		const handleIncomingShareTarget = () => {
 			const params = new URLSearchParams(window.location.search);
