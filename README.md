@@ -1,6 +1,6 @@
 # 🎬 Media Downloader
 
-A lightweight, self-hosted media synchronization engine and web dashboard engineered specifically for resource-constrained systems like **OpenWrt routers** and **Network Attached Storage (NAS) units** (such as UGREEN NAS). It automatically monitors series feeds from targeted Asian drama and movie repositories (such as `thenkiri.com` and `dramakey.com`), solves intermediate file locker configurations natively behind the scenes, and streams media assets straight to attached storage arrays—all with zero operational bloat.
+A lightweight, self-hosted media synchronization engine and web dashboard engineered specifically for resource-constrained systems like **OpenWrt routers** and **Network Attached Storage (NAS) units** (such as UGREEN NAS). It automatically monitors TV series and movie feeds from targeted drama and movie repositories (such as `thenkiri.com` and `dramakey.com`), solves intermediate file locker configurations natively behind the scenes, and streams media assets straight to attached storage arrays—all with zero operational bloat.
 
 ---
 
@@ -18,14 +18,16 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 ## ✨ Features
 
 * **🎛️ Low Memory Footprint:** Built entirely using Python's native standard libraries (`http.server`, `urllib`, and `json`). Does not require heavy third-party framework dependencies like FastAPI, Flask, or BeautifulSoup, preserving host RAM.
-* **📱 Progressive Web App (PWA):** Features a fully responsive, mobile-first frontend dashboard layout with fluid tab navigation. Can be installed directly onto your Android, iOS, or desktop home screens as a standalone application.
+* **📱 Progressive Web App (PWA) & Android Share Target:** Features a responsive, mobile-first dashboard with folder-style tabs, dark mode, and bottom-anchored mobile controls. Installs directly to your home screen and integrates into the mobile Share sheet to clean titles, detect `Season 02+` subfolders, and pre-fill Jellyfin paths in one tap.
+* **👀 Automated Watchlist & Site Search:** Tracks upcoming shows and movies grouped by source site without needing a URL up front. Probes sites on save or during scheduled syncs, offers interactive multi-match selection when multiple titles match, and auto-promotes releases straight into active downloads.
+* **🎬 Separate TV Series & Movie Routing:** Supports both multi-episode TV series (`Show Name - S01E01.mkv` in `base_dir`) and standalone movies (`Movie Title.mkv` in `movies_dir`), automatically marking movies `complete` once downloaded.
+* **🔔 Instant Mobile Push Notifications (`ntfy.sh`):** Sends real-time alerts to your phone whenever an episode finishes downloading, a movie is ready, or a Watchlist title promotes—complete with an enable/mute toggle and live test button in Settings.
+* **⏳ Full Queue & Crawler Control:** Features a dedicated Queue tab with real-time progress bars, a **Clear Pending** button, and an emergency **Stop & Clear All** abort switch that terminates active `curl`/`ffmpeg` transfers, cleans up partial files, and halts in-flight scraping loops immediately.
 * **🔓 File Locker & Stream Automation:** Features a built-in form-submission solver tailored to handle intermediate ad-heavy hosting networks (such as `downloadwella.com`) to extract true binary paths dynamically.
-* **🔀 Smart Soft Dependencies (FFmpeg & Curl):** Uses an adaptable download pipeline. Direct media links (`.mp4` / `.mkv`) are handled via system `curl` character streams. Fragmented HTTP Live Streaming (`.m3u8`) targets trigger a soft-dependency handoff to local `ffmpeg` workers if installed on the host machine.
-* **📊 Real-Time Visual Feedback:** Features an in-memory carriage-return (`\r`) parsing engine that intercepts background downloader strings to drive smooth frontend progress bars and milestone indicators.
-* **🔄 State Persistence (UCI Format):** Integrates directly into native embedded system parameters. Target paths, credentials, and downloaded sequences are managed seamlessly via standard configurations stored in `/etc/config/media-downloader`.
-* **📁 Directory Validation Synchronizer:** Includes an automated folder scanner that parses storage arrays using context-aware regular expressions. It matches existing files (e.g., `S01E02`, `Ep 4`) and links them back to the configuration records to save network bandwidth.
-* **🛡️ Session-Aware Security & Log Pruning:** Equipped with an isolated cookie-based authentication gateway (`SameSite=Strict`, `HttpOnly`) and an active, thread-safe runtime console log terminal featuring a custom UI button to flush RAM memory instantly.
-* **💯 Year-Tag Noise Suppression:** Employs an intelligent numerical boundary filter that automatically isolates true episode sequences (`<= 150`) while discarding calendar years (`2025`, `2026`) and common resolution indicators (`720p`, `1080p`).
+* **🔀 Smart Soft Dependencies (FFmpeg & Curl):** Uses an adaptable download pipeline. Direct media links (`.mp4` / `.mkv`) are handled via system `curl` character streams, while `.m3u8` HLS playlists trigger a soft-dependency handoff to local `ffmpeg` workers if installed.
+* **🔄 State Persistence (UCI Format):** Integrates directly into native embedded system parameters. Storage paths, domain allowlists, notification settings, watchlist items, and downloaded sequences are managed via `/etc/config/media-downloader`.
+* **📁 Recursive Storage Synchronizer & Safe Pruning:** Scans nested season folders on startup or on demand (`S01E02`, `Ep 4`) to sync existing files back to your config, while safely evicting unchecked episodes (including `.nfo` and `.trickplay` assets) when edited manually.
+* **🛡️ Domain Allowlist & Session Security:** Restricts incoming shared links, series additions, and watchlist sources to a user-configurable list of allowed domains, backed by a cookie-based authentication gateway (`SameSite=Strict`, `HttpOnly`) and thread-safe runtime logs.
 
 ---
 
@@ -40,13 +42,13 @@ The system maintains a clean, lightweight directory footprint when installed:
 │   ├── crontabs/root                   # System crontab automation timer (using the --cron flag)
 │   └── init.d/media-downloader         # procd/systemd service control daemon script
 └── usr/
-    ├── libexec/media-downloader.py     # Stream-aware core scraping & download server engine
+    ├── libexec/media-downloader.py     # Stream-aware core scraping, search & download server engine
     └── share/media-downloader/         # Web dashboard UI container folder
-        ├── index.html                  # Responsive front-end dashboard template layout
-        ├── manifest.json               # Progressive Web App configuration file
+        ├── index.html                  # Responsive front-end dashboard & PWA Share Target handler
+        ├── manifest.json               # Progressive Web App & Share Target manifest
         ├── sw.js                       # Offline PWA service routing worker
         ├── app-icon.png                # Cohesive branding favicon and app launcher asset
-        └── style.css                   # Main application layout style sheet
+        └── styles.css                  # Responsive light/dark theme layout stylesheet
 ```
 
 ---
@@ -66,7 +68,7 @@ apk add ffmpeg
 ```
 
 ### 2. Standard Configuration Setup (`/etc/config/media-downloader`)
-Configure your network bind interface targets, web security settings, and default storage folders. The configuration format follows standard OpenWrt UCI layout blocks:
+Configure your network bind interface targets, web security settings, allowed source domains, push notification topic, and default storage folders. The configuration format follows standard OpenWrt UCI layout blocks:
 
 ```text
 package media-downloader
@@ -74,17 +76,28 @@ package media-downloader
 config global 'main'
     option bind_address '0.0.0.0'
     option port '8080'
-    option base_dir '/mnt/sda1/Downloads'
+    option base_dir '/mnt/hdd/KDramas'
+    option movies_dir '/mnt/hdd/Movies'
     option auth_enabled '1'
     option auth_username 'admin'
     option auth_password 'admin'
+    option allowed_domains 'thenkiri.com,dramakey.com'
+    option ntfy_enabled '1'
+    option ntfy_topic 'your-private-ntfy-topic'
 
-config series 'thedivorceinsurance'
+config series 'the-divorce-insurance'
     option name 'The Divorce Insurance'
     option url 'https://thenkiri.com'
-    option path '/mnt/sda1/Downloads/The Divorce Insurance'
-    option downloaded_episodes '1'
-    option last_update '1711910540'
+    option path '/mnt/hdd/KDramas/The Divorce Insurance'
+    option type 'series'
+    option status 'complete'
+    option downloaded_episodes '1 2 3 4 5 6 7 8 9 10 11 12'
+    option last_update '1794508804'
+
+config watchlist 'merry-berry-love'
+    option name 'Merry Berry Love'
+    option source 'thenkiri.com'
+    option type 'series'
 ```
 
 ### 3. Enable System Automation Services
@@ -96,21 +109,27 @@ To guarantee the application daemon launches automatically on system boots, run:
 /etc/init.d/media-downloader start
 ```
 
-To run headlight scraping cycles seamlessly in the background without launching the persistent HTTP server socket, configure a cron entry to pass the explicit execution flag:
+To run headless scraping cycles seamlessly in the background without launching the persistent HTTP server socket, configure a cron entry to pass the explicit execution flag:
 
 ```text
-0 0 * * * /usr/libexec/media-downloader.py --cron
+0 */2 * * * /usr/libexec/media-downloader.py --cron
 ```
 
 ---
 
-## 📱 Mobile PWA Installation Guide
+## 📱 Mobile PWA & Share Sheet Installation Guide
 
-Because mobile browsers restrict progressive web app installation features to secure network states, you must either set up a HTTPS proxy to connect to the app, or you must access the local dashboard through an address context the browser inherently trusts:
+Because mobile browsers restrict Progressive Web App and Share Target features to secure contexts (`HTTPS` or `localhost`), choose one of the following setups:
 
-1. Connect to your router/NAS via SSH using local port forwarding (e.g., tunnel local port `8080` to `127.0.0.1:8080`).
+### Option A: HTTPS Reverse Proxy (Recommended for Everyday Mobile Use)
+1. Expose your dashboard over HTTPS using a reverse proxy (such as Caddy, Nginx, or Tailscale Serve) pointing to `127.0.0.1:8080`.
+2. Open the HTTPS URL in Chrome on Android or Safari on iOS.
+3. Tap **Install App** or **Add to Home Screen**. Once installed, sharing any link from your mobile browser to **Media Downloader** automatically opens the pre-filled Add Series modal.
+
+### Option B: Local SSH Tunnel
+1. Connect to your router/NAS via SSH using local port forwarding (tunneling local port `8080` to `127.0.0.1:8080`).
 2. Open Chrome or Safari on your phone and head directly to **`http://localhost:8080`**.
-3. Tap **Add to Home Screen** or **Install App** to deploy the native app wrapper to your device launcher.
+3. Tap **Add to Home Screen** or **Install App** to deploy the standalone app wrapper to your device launcher.
 
 ---
 

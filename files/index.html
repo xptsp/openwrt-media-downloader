@@ -13,14 +13,24 @@
 	<link rel="stylesheet" href="/style.css">
 </head>
 <body>
+	<script>
+		(() => {
+			const savedMode = localStorage.getItem('themeMode') || 'auto';
+			const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+			if (savedMode === 'dark' || (savedMode === 'auto' && systemDark)) {
+				document.body.classList.add('dark-mode');
+			}
+		})();
+	</script>
 	<div class="container">
-		<h1>
-			<img src="/app-icon.png" width="32" height="32" style="vertical-align: middle;">
+		<h1 style="display: flex; align-items: center; gap: 10px;">
+			<img src="/app-icon.png" width="32" height="32">
 			<span id="mainTitle">Media Downloader</span>
+			<button type="button" id="themeToggleBtn" class="secondary-btn" onclick="cycleThemeMode()" title="Theme: Auto / Light / Dark" style="margin-left: auto; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">🌓 Auto</button>
 		</h1>
 
 		<!-- Unified Hyperlink Navigation System Bar -->
-		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center; padding-top: 15px;">
+		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
 			<div style="display: flex; gap: 0px;">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
@@ -47,10 +57,10 @@
 					<tbody></tbody>
 				</table>
 			</div>
-			<div class="btn-group" style="margin-top: 20px;">
-				<button type="button" class="secondary-btn" onclick="triggerStorageScan()">💾 Scan Storage Paths</button>
-				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔫 Sync Updates Now</button>
-				<button type="button" class="secondary-btn" onclick="openAddSeriesModal()" style="background: #28a745;">➕ Add Series</button>
+			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+				<button type="button" class="success-btn" onclick="openAddSeriesModal()">➕ Add Series</button>
+				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔫 Look for Episodes</button>
+				<button type="button" class="secondary-btn" onclick="triggerStorageScan()">💾 Scan Paths</button>
 			</div>
 		</div>
 
@@ -128,17 +138,23 @@
 					</div>
 
 					<div class="form-group">
-						<label>📺 Series Directory:</label>
-						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Downloads">
+						<label>📺 Series Base Directory:</label>
+						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Series">
 					</div>
 					<div class="form-group">
-						<label for="settingMoviesDir">🎬 Movies Directory</label>
-						<input type="text" id="settingMoviesDir" placeholder="/mnt/hdd/Movies">
+						<label for="settingMoviesDir">🎬 Movies Base Directory</label>
+						<input type="text" id="settingMoviesDir" placeholder="/mnt/sd1/Movies">
 					</div>
 					<div class="form-group">
-						<label for="settingNtfyTopic">🔔 Push Notification Topic (ntfy.sh)</label>
+						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+							<input type="checkbox" id="settingNtfyEnabled" style="width: auto; margin: 0;">
+							<span>🔔 Enable Push Notifications (ntfy.sh)</span>
+						</label>
+					</div>
+					<div class="form-group">
+						<label for="settingNtfyTopic">ntfy.sh Topic ID</label>
 						<div style="display: flex; gap: 8px;">
-							<input type="text" id="settingNtfyTopic" placeholder="Leave blank to disable (e.g., my-kdrama-downloader-9821)">
+							<input type="text" id="settingNtfyTopic" placeholder="e.g., donas-kdrama-9821">
 							<button type="button" class="secondary-btn" onclick="sendTestNotification()" style="white-space: nowrap;">Test</button>
 						</div>
 					</div>
@@ -151,6 +167,14 @@
 							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
 							<span>Enable Dashboard Access Security Portal</span>
 						</label>
+					</div>
+					<div class="form-group">
+						<label for="settingDefaultTheme">🎨 Default App Theme (For New Devices)</label>
+						<select id="settingDefaultTheme">
+							<option value="auto">🌓 Auto (Follow Device OS)</option>
+							<option value="light">☀️ Light Mode</option>
+							<option value="dark">🌙 Dark Mode</option>
+						</select>
 					</div>
 					<div id="auth_credentials_wrapper" style="display: none; background: #ffffff; padding: 15px; border: 1px solid var(--light-border); border-radius: 6px; margin-top: 12px; margin-bottom: 15px;">
 						<div class="form-group">
@@ -238,6 +262,13 @@
 			<h3 id="watchTitle">👀 Add to Watchlist</h3>
 			<form id="watchlistForm">
 				<div class="form-group">
+					<label for="watchlistType">Media Type</label>
+					<select id="watchlistType">
+						<option value="series">📺 TV Series</option>
+						<option value="movie">🎬 Movie</option>
+					</select>
+				</div>
+				<div class="form-group">
 					<label for="watchlistName">Series Title</label>
 					<input type="text" id="watchlistName" placeholder="e.g., Merry Berry Love" required>
 				</div>
@@ -300,8 +331,21 @@
 		// =====================================================================
 		const showToast = (message, isSuccess = true) => {
 			const toast = document.getElementById('customToast');
+			if (!toast) return;
+
+			const isDark = document.body.classList.contains('dark-mode');
 			toast.innerText = message;
-			toast.style.background = isSuccess ? '#28a745' : '#dc3545';
+
+			if (isDark) {
+				toast.style.backgroundColor = isSuccess ? '#1b4332' : '#5c1a22';
+				toast.style.color = '#e9ecef';
+				toast.style.border = isSuccess ? '1px solid #2d6a4f' : '1px solid #842029';
+			} else {
+				toast.style.backgroundColor = isSuccess ? '#28a745' : '#dc3545';
+				toast.style.color = '#ffffff';
+				toast.style.border = 'none';
+			}
+
 			toast.classList.add('active');
 			setTimeout(() => toast.classList.remove('active'), 3000);
 		};
@@ -590,6 +634,12 @@
 				document.getElementById('settingAllowedDomains').value = currentDashboardData.global.allowed_domains || 'thenkiri.com,dramakey.com';
 				document.getElementById('settingMoviesDir').value = currentDashboardData.global.movies_dir || '/mnt/hdd/Movies';
 
+				const ntfyEnabledEl = document.getElementById('settingNtfyEnabled');
+				if (ntfyEnabledEl) {
+					const enabledFlag = currentDashboardData.global && currentDashboardData.global.ntfy_enabled;
+					ntfyEnabledEl.checked = (enabledFlag !== '0');
+				}
+
 				const rawDomains = (currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
 				const allowedDomains = rawDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
 
@@ -614,6 +664,21 @@
 				const ntfyInput = document.getElementById('settingNtfyTopic');
 				if (ntfyInput) {
 					ntfyInput.value = (currentDashboardData.global && currentDashboardData.global.ntfy_topic) || '';
+				}
+
+				const serverDefaultTheme = (currentDashboardData.global && currentDashboardData.global.theme_mode) || 'auto';
+
+				// Populate Settings tab dropdown
+				const themeSelect = document.getElementById('settingDefaultTheme');
+				if (themeSelect) {
+					themeSelect.value = serverDefaultTheme;
+				}
+
+				// Only apply global default if this device hasn't chosen its own theme yet
+				if (!localStorage.getItem('themeMode')) {
+					applyThemeMode(serverDefaultTheme);
+					// Remove the localStorage entry written by applyThemeMode so it keeps following global default until manually toggled
+					localStorage.removeItem('themeMode');
 				}
 			} catch (err) {
 				console.error("Dashboard primary mapping retrieval failure:", err);
@@ -761,6 +826,14 @@
 		// =====================================================================
 		// 8. MODAL INTERACTION CONTROLLERS & SUBMISSIONS
 		// =====================================================================
+		const clearSeriesSearchResults = () => {
+			const resultsBox = document.getElementById('seriesSearchResults');
+			if (resultsBox) {
+				resultsBox.style.display = 'none';
+				resultsBox.innerHTML = '';
+			}
+		};
+
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
 			const name = nameInput.value.trim();
@@ -828,7 +901,9 @@
 					auth_username: document.getElementById('auth_username').value.trim(),
 					auth_password: document.getElementById('auth_password').value.trim(),
 					allowed_domains: document.getElementById('settingAllowedDomains').value.trim(),
-					ntfy_topic: document.getElementById('settingNtfyTopic').value.trim()
+					ntfy_enabled: document.getElementById('settingNtfyEnabled').checked ? '1' : '0',
+					ntfy_topic: document.getElementById('settingNtfyTopic').value.trim(),
+					theme_mode: document.getElementById('settingDefaultTheme').value
 				})
 			});
 			showToast('System application configuration saved successfully.');
@@ -868,6 +943,7 @@
 
 		const openAddSeriesModal = () => {
 			editModeId = null;
+			clearSeriesSearchResults();
 			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
 			document.getElementById('seriesForm').reset();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
@@ -881,9 +957,11 @@
 		};
 
 		const openEditSeriesModal = (id) => {
-			editModeId = id;
 			const sData = currentDashboardData.series[id];
 			if (!sData) return;
+
+			editModeId = id;
+			clearSeriesSearchResults();
 
 			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${sData.name || id}`;
 			document.getElementById('name').value = sData.name || '';
@@ -925,6 +1003,7 @@
 
 		const closeAddSeriesModal = () => {
 			editModeId = null;
+			clearSeriesSearchResults();
 			document.getElementById('seriesForm').reset();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').style.display = 'none';
@@ -1096,6 +1175,7 @@
 			if (titleEl) titleEl.innerText = '👀 Add to Watchlist';
 			document.getElementById('watchlistForm').reset();
 			document.getElementById('addWatchlistModal').classList.add('active');
+			document.getElementById('watchlistType').value = 'series'
 		};
 
 		const openEditWatchlistModal = (wId) => {
@@ -1110,6 +1190,7 @@
 			document.getElementById('watchlistName').value = wData.name || '';
 			document.getElementById('watchlistSource').value = wData.source || 'thenkiri.com';
 			document.getElementById('addWatchlistModal').classList.add('active');
+			document.getElementById('watchlistType').value = wData.type || 'series'
 		};
 
 		const closeAddWatchlistModal = () => {
@@ -1410,6 +1491,44 @@
 				});
 			});
 		}
+
+				let currentThemeMode = localStorage.getItem('themeMode') || 'auto';
+		const osDarkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+		const applyThemeMode = (mode) => {
+			if (!['auto', 'light', 'dark'].includes(mode)) {
+				mode = 'auto';
+			}
+			currentThemeMode = mode;
+			localStorage.setItem('themeMode', mode);
+
+			const useDark = (mode === 'dark') || (mode === 'auto' && osDarkMediaQuery.matches);
+			document.body.classList.toggle('dark-mode', useDark);
+
+			const btn = document.getElementById('themeToggleBtn');
+			if (btn) {
+				if (mode === 'auto') btn.innerText = '🌓 Auto';
+				else if (mode === 'light') btn.innerText = '☀️ Light';
+				else btn.innerText = '🌙 Dark';
+			}
+		};
+
+		// Live listener: automatically switches theme when Android/Windows/macOS changes appearance
+		osDarkMediaQuery.addEventListener('change', () => {
+			if (currentThemeMode === 'auto') {
+				applyThemeMode('auto');
+			}
+		});
+
+		const cycleThemeMode = () => {
+			const order = ['auto', 'light', 'dark'];
+			const nextMode = order[(order.indexOf(currentThemeMode) + 1) % order.length];
+			applyThemeMode(nextMode);
+		};
+
+		// Initialize button label immediately on load
+		applyThemeMode(currentThemeMode);
+
 	</script>
 </body>
 </html>

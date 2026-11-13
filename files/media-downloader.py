@@ -48,10 +48,13 @@ SYNC_LOCK = threading.Lock()
 ##############################################################################################
 # Supporting functions
 ##############################################################################################
-def send_push_notification(title, message, tags="tv,white_check_mark"):
-	"""Sends an instant mobile push notification via ntfy.sh if a topic is configured."""
+def send_push_notification(title, message, tags="tv,white_check_mark", override_topic=None):
+	"""Sends an instant mobile push notification via ntfy.sh if enabled and a topic is configured."""
 	config = read_uci_config()
-	topic = config["global"].get("ntfy_topic", "").strip()
+	if not override_topic and config["global"].get("ntfy_enabled", "1") != "1":
+		return False
+
+	topic = (override_topic or config["global"].get("ntfy_topic", "")).strip().lstrip("/")
 	if not topic:
 		return False
 
@@ -133,12 +136,14 @@ def read_uci_config():
 			"bind_address": "0.0.0.0",
 			"port": "8080",
 			"base_dir": "/mnt/sda1/Downloads",
-			"movies_dir": "/mnt/sda1/Movies",
+			"movies_dir": "/mnt/hdd/Movies",
 			"auth_enabled": "0",
 			"auth_username": "admin",
 			"auth_password": "admin",
 			"allowed_domains": "thenkiri.com,dramakey.com",
-			"ntfy_topic": ""
+			"ntfy_topic": "",
+			"ntfy_enabled": "1",
+			"theme_mode": "auto"
 		},
 		"series": {},
 		"watchlist": {}
@@ -197,9 +202,12 @@ def write_uci_config(config_data):
 		f.write(f"    option movies_dir '{config_data['global'].get('movies_dir', '/mnt/hdd/Movies')}'\n")
 		f.write(f"    option auth_enabled '{config_data['global'].get('auth_enabled', '0')}'\n")
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
-		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n\n")
+		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n")
 		f.write(f"    option allowed_domains '{config_data['global'].get('allowed_domains', 'thenkiri.com,dramakey.com')}'\n")
 		f.write(f"    option ntfy_topic '{config_data['global'].get('ntfy_topic', '')}'\n")
+		f.write(f"    option ntfy_enabled '{config_data['global'].get('ntfy_enabled', '1')}'\n")
+		f.write(f"    option theme_mode '{config_data['global'].get('theme_mode', 'auto')}'\n\n")
+
 		for s_id, s_data in config_data["series"].items():
 			f.write(f"config series '{s_id}'\n")
 			f.write(f"    option name '{s_data.get('name', '')}'\n")
@@ -210,6 +218,7 @@ def write_uci_config(config_data):
 			f.write(f"    option type '{s_data.get('type', 'series')}'\n")
 			eps = ",".join(s_data.get('downloaded_episodes', []))
 			f.write(f"    option downloaded_episodes '{eps}'\n\n")
+
 		for w_id, w_data in config_data.get("watchlist", {}).items():
 			f.write(f"config watchlist '{w_id}'\n")
 			f.write(f"    option name '{w_data.get('name', '')}'\n")
@@ -1244,6 +1253,12 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					config["global"]["allowed_domains"] = ",".join(clean_domains)
 				if "ntfy_topic" in data:
 					config["global"]["ntfy_topic"] = data["ntfy_topic"].strip()
+				if "ntfy_enabled" in data:
+					config["global"]["ntfy_enabled"] = "1" if str(data["ntfy_enabled"]) in ("1", "true", "True") else "0"
+				if "theme_mode" in data:
+					mode_val = str(data["theme_mode"]).strip().lower()
+					if mode_val in ("auto", "light", "dark"):
+						config["global"]["theme_mode"] = mode_val
 
 				write_uci_config(config)
 				self.send_response(200)

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'media-downloader-v1';
+const CACHE_NAME = 'media-downloader-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
