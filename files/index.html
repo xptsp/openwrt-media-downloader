@@ -23,15 +23,15 @@
 		})();
 	</script>
 	<div class="container">
-		<h1 style="display: flex; align-items: center; gap: 10px;">
+		<h1 class="app-header">
 			<img src="/app-icon.png" width="32" height="32">
 			<span id="mainTitle">Media Downloader</span>
-			<button type="button" id="themeToggleBtn" class="secondary-btn" onclick="cycleThemeMode()" title="Theme: Auto / Light / Dark" style="margin-left: auto; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">🌓 Auto</button>
+			<button type="button" id="themeToggleBtn" class="secondary-btn theme-toggle-btn" onclick="cycleThemeMode()" title="Theme: Auto / Light / Dark">🌓 Auto</button>
 		</h1>
 
 		<!-- Unified Hyperlink Navigation System Bar -->
-		<div class="tab-nav" style="display: flex; justify-content: space-between; align-items: center;">
-			<div style="display: flex; gap: 0px;">
+		<div class="tab-nav">
+			<div class="tab-nav-links">
 				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
 				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
@@ -39,12 +39,19 @@
 				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
 				<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
 			</div>
-			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()" style="display: none; color: var(--danger-red); font-weight: bold; margin-bottom: -2px;">🚪 Logout</button>
+			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()">🚪 Logout</button>
 		</div>
 
-		<!-- TAB 1: Monitored Feeds List -->
+		<!-- TAB 1: Series Poster Gallery -->
 		<div id="series-tab" class="tab-content">
-			<div class="table-responsive">
+			<div class="series-toolbar">
+				<div class="series-view-toggle" role="group" aria-label="Series view">
+					<button type="button" id="seriesGalleryToggle" class="secondary-btn active" aria-controls="seriesGrid" aria-pressed="true" onclick="setSeriesView('gallery')">🖼 Posters</button>
+					<button type="button" id="seriesListToggle" class="secondary-btn" aria-controls="seriesList" aria-pressed="false" onclick="setSeriesView('list')">📋 List</button>
+				</div>
+			</div>
+			<div id="seriesGrid" class="series-grid series-view" aria-live="polite"></div>
+			<div id="seriesList" class="table-responsive series-view" hidden>
 				<table id="seriesTable">
 					<thead>
 						<tr>
@@ -57,7 +64,7 @@
 					<tbody></tbody>
 				</table>
 			</div>
-			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+			<div class="log-actions">
 				<button type="button" class="success-btn" onclick="openAddSeriesModal()">➕ Add Series</button>
 				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔫 Look for Episodes</button>
 				<button type="button" class="secondary-btn" onclick="triggerStorageScan()">💾 Scan Paths</button>
@@ -76,13 +83,13 @@
 					</thead>
 					<tbody id="watchlistTableBody">
 						<tr>
-							<td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">No upcoming series on your watchlist.</td>
+							<td colspan="2" class="empty-state-cell">No upcoming series on your watchlist.</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
 
-			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+			<div class="log-actions">
 				<button type="button" class="success-btn" onclick="openAddWatchlistModal()">➕ Add to Watchlist</button>
 				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔄 Check Now</button>
 			</div>
@@ -101,14 +108,14 @@
 					</thead>
 					<tbody id="queueTableBody">
 						<tr>
-							<td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td>
+							<td colspan="3" class="empty-state-cell">No active or queued downloads.</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
-			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
-				<button type="button" class="secondary-btn remove-btn" onclick="clearDownloadQueue()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Queue</button>
-				<button type="button" class="secondary-btn remove-btn" onclick="abortAllDownloads()" style="width: auto; background: var(--danger-red); margin: 0;">🛑 Stop &amp; Clear All</button>
+			<div class="log-actions">
+				<button type="button" class="secondary-btn danger-btn compact-btn" onclick="clearDownloadQueue()">🗑️ Clear Queue</button>
+				<button type="button" class="secondary-btn danger-btn compact-btn" onclick="abortAllDownloads()">🛑 Stop &amp; Clear All</button>
 			</div>
  		</div>
 
@@ -118,10 +125,10 @@
 			<div id="logTerminal" class="log-terminal"></div>
 
 			<!-- Bottom-aligned global utility controls bar -->
-			<div class="log-actions" style="display: flex; gap: 8px; margin-top: 10px;">
-				<button type="button" class="secondary-btn" onclick="fetchEngineLogs()" style="width: auto;">🔄 Refresh Logs</button>
-				<button type="button" class="secondary-btn" onclick="triggerCopyLogsAction(this)" style="width: auto; background: #007bff; color: white; margin: 0;">📋 Copy Logs</button>
-				<button type="button" class="secondary-btn remove-btn" onclick="triggerClearLogsAction()" style="width: auto; background: var(--danger-red); margin: 0;">🗑️ Clear Logs</button>
+			<div class="log-actions">
+				<button type="button" class="secondary-btn compact-btn" onclick="fetchEngineLogs()">🔄 Refresh Logs</button>
+				<button type="button" class="secondary-btn info-btn compact-btn" onclick="triggerCopyLogsAction(this)">📋 Copy Logs</button>
+				<button type="button" class="secondary-btn danger-btn compact-btn" onclick="triggerClearLogsAction()">🗑️ Clear Logs</button>
 			</div>
 		</div>
 
@@ -133,7 +140,7 @@
 						<span>💽 Disk Storage</span>
 						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
 					</div>
-					<div class="progress-container" style="margin-bottom: 20px;">
+					<div class="progress-container storage-progress">
 						<div id="storageBar" class="progress-bar"></div>
 					</div>
 
@@ -142,31 +149,30 @@
 						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Series">
 					</div>
 					<div class="form-group">
+						<label for="cache_dir">🖼️ Poster Cache Directory</label>
+						<input type="text" id="cache_dir" placeholder="/mnt/sda1/Downloads/.media-downloader-cache">
+						<small class="series-view-setting-hint">Series poster images are saved here on the server.</small>
+					</div>
+					<div class="form-group">
 						<label for="settingMoviesDir">🎬 Movies Base Directory</label>
 						<input type="text" id="settingMoviesDir" placeholder="/mnt/sd1/Movies">
 					</div>
 					<div class="form-group">
-						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-							<input type="checkbox" id="settingNtfyEnabled" style="width: auto; margin: 0;">
+						<label class="inline-checkbox-label">
+							<input type="checkbox" id="settingNtfyEnabled" class="inline-checkbox">
 							<span>🔔 Enable Push Notifications (ntfy.sh)</span>
 						</label>
 					</div>
 					<div class="form-group">
 						<label for="settingNtfyTopic">ntfy.sh Topic ID</label>
-						<div style="display: flex; gap: 8px;">
+						<div class="input-button-row">
 							<input type="text" id="settingNtfyTopic" placeholder="e.g., donas-kdrama-9821">
-							<button type="button" class="secondary-btn" onclick="sendTestNotification()" style="white-space: nowrap;">Test</button>
+							<button type="button" class="secondary-btn no-wrap" onclick="sendTestNotification()">Test</button>
 						</div>
 					</div>
 					<div class="form-group">
 						<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
 						<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
-					</div>
-					<div class="form-group">
-						<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
-							<input type="checkbox" id="auth_enabled" style="width: auto; height: auto; cursor: pointer; margin: 0;">
-							<span>Enable Dashboard Access Security Portal</span>
-						</label>
 					</div>
 					<div class="form-group">
 						<label for="settingDefaultTheme">🎨 Default App Theme (For New Devices)</label>
@@ -176,16 +182,30 @@
 							<option value="dark">🌙 Dark Mode</option>
 						</select>
 					</div>
-					<div id="auth_credentials_wrapper" style="display: none; background: #ffffff; padding: 15px; border: 1px solid var(--light-border); border-radius: 6px; margin-top: 12px; margin-bottom: 15px;">
+					<div class="form-group">
+						<label for="settingDefaultSeriesView">🖼 Default Series View</label>
+						<select id="settingDefaultSeriesView">
+							<option value="gallery">Posters</option>
+							<option value="list">List</option>
+						</select>
+						<small class="series-view-setting-hint">Applies to devices using the default. Choosing this view on a device clears its override.</small>
+					</div>
+					<div class="form-group">
+						<label class="inline-checkbox-label bold-checkbox-label">
+							<input type="checkbox" id="auth_enabled" class="inline-checkbox">
+							<span>Enable Dashboard Access Security Portal</span>
+						</label>
+					</div>
+					<div id="auth_credentials_wrapper" class="auth-credentials-wrapper">
 						<div class="form-group">
 							<label>Configured Web Username:</label>
-							<input type="text" id="auth_username" placeholder="e.g. admin" style="background: #fff; color: #333;">
+							<input type="text" id="auth_username" class="auth-credential-input" placeholder="e.g. admin">
 						</div>
-						<div class="form-group" style="margin-bottom: 0;">
+						<div class="form-group form-group-last">
 							<label>Configured Access Password:</label>
-							<div style="position: relative; display: flex; align-items: center;">
-								<input type="password" id="auth_password" placeholder="Enter secure interface password" style="background: #fff; color: #333; padding-right: 45px; margin-bottom: 0;">
-								<span onclick="toggleFieldVisibility('auth_password', this)" style="position: absolute; right: 12px; cursor: pointer; font-size: 0.85rem; font-weight: bold; color: var(--secondary-gray); user-select: none;">👁️</span>
+							<div class="password-input-wrap">
+								<input type="password" id="auth_password" class="auth-credential-input password-input" placeholder="Enter secure interface password">
+								<span class="password-visibility-toggle" onclick="toggleFieldVisibility('auth_password', this)">👁️</span>
 							</div>
 						</div>
 					</div>
@@ -211,12 +231,12 @@
 				</div>
 				<div class="form-group">
 					<label for="name">Series Name</label>
-					<div style="display: flex; gap: 8px;">
+					<div class="input-button-row">
 						<input type="text" id="name" placeholder="e.g., Merry Berry Love" required>
-						<button type="button" id="seriesSearchBtn" class="secondary-btn" onclick="searchSeriesUrl()" style="white-space: nowrap;">🔍 Search</button>
+						<button type="button" id="seriesSearchBtn" class="secondary-btn no-wrap" onclick="searchSeriesUrl()">🔍 Search</button>
 					</div>
 				</div>
-				<div id="seriesSearchResults" style="display: none; margin-bottom: 15px; border: 1px solid var(--light-border); border-radius: 6px; max-height: 200px; overflow-y: auto;"></div>
+				<div id="seriesSearchResults" class="search-results series-search-results"></div>
 				<div class="form-group">
 					<label>Source URL:</label>
 					<input type="text" id="url" required placeholder="https://thenkiri.com...">
@@ -225,16 +245,16 @@
 					<label>Destination Path (Auto-generates):</label>
 					<input type="text" id="path" required placeholder="Will auto-fill based on name...">
 				</div>
-				<div id="modalEpisodesWrapper" class="form-group" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--light-border);">
-					<label style="font-weight: bold; margin-bottom: 8px; display: block;">Managed Downloaded Episodes:</label>
-					<div id="modalEpisodesChecklist" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(75px, 1fr)); gap: 8px; max-height: 120px; overflow-y: auto; background: #f8f9fa; padding: 10px; border: 1px solid var(--light-border); border-radius: 6px;">
+				<div id="modalEpisodesWrapper" class="form-group modal-episodes-wrapper">
+					<label class="modal-section-label">Managed Downloaded Episodes:</label>
+					<div id="modalEpisodesChecklist" class="modal-episodes-checklist">
 						<!-- Dynamic checkboxes generate here -->
 					</div>
-					<small style="color: var(--secondary-gray); display: block; margin-top: 6px;">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
+					<small class="modal-help-text">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
 				</div>
-				<div id="modalRecheckWrapper" class="form-group" style="display: none; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--light-border);">
-					<label for="editSeriesRecheck" style="margin: 0; font-weight: 600;">🔄 Force Recheck Status (Ongoing)</label>
-					<input type="checkbox" id="editSeriesRecheck" style="width: auto; transform: scale(1.2); cursor: pointer;">
+				<div id="modalRecheckWrapper" class="form-group modal-recheck-wrapper">
+					<label for="editSeriesRecheck" class="modal-recheck-label">🔄 Force Recheck Status (Ongoing)</label>
+					<input type="checkbox" id="editSeriesRecheck" class="modal-recheck-checkbox">
 				</div>
 				<div class="modal-buttons">
 					<button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
@@ -250,8 +270,8 @@
 			<h3 id="modalTitle">Confirmation Required</h3>
 			<p id="modalMessage">Are you sure you want to perform this action?</p>
 			<div class="modal-buttons">
-				<button id="modalCancelBtn" class="secondary-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Cancel</button>
-				<button id="modalConfirmBtn" class="remove-btn" style="margin:0; width: 80px; height: 34px; padding:0; font-size:0.85rem;">Confirm</button>
+				<button id="modalCancelBtn" class="secondary-btn modal-action-button">Cancel</button>
+				<button id="modalConfirmBtn" class="remove-btn modal-action-button">Confirm</button>
 			</div>
 		</div>
 	</div>
@@ -272,7 +292,7 @@
 					<label for="watchlistName">Series Title</label>
 					<input type="text" id="watchlistName" placeholder="e.g., Merry Berry Love" required>
 				</div>
-				<div id="watchlistSearchResults" style="display: none; margin-bottom: 15px; border: 1px solid var(--light-border); border-radius: 6px; max-height: 220px; overflow-y: auto;"></div>
+				<div id="watchlistSearchResults" class="search-results watchlist-search-results"></div>
 				<div class="form-group">
 					<label for="watchlistSource">Source Site</label>
 					<select id="watchlistSource">
@@ -304,6 +324,53 @@
 		let currentDashboardData = null;
 		let editModeId = null;
 
+		const SERIES_VIEW_OVERRIDE_KEY = 'seriesViewOverride';
+		const getSeriesViewOverride = () => {
+			const savedOverride = localStorage.getItem(SERIES_VIEW_OVERRIDE_KEY);
+			if (savedOverride === 'gallery' || savedOverride === 'list') return savedOverride;
+
+			const legacyView = localStorage.getItem('seriesView');
+			if (legacyView === 'gallery' || legacyView === 'list') {
+				localStorage.setItem(SERIES_VIEW_OVERRIDE_KEY, legacyView);
+				localStorage.removeItem('seriesView');
+				return legacyView;
+			}
+			return null;
+		};
+
+		const applySeriesView = (view) => {
+			const selectedView = view === 'list' ? 'list' : 'gallery';
+			document.getElementById('seriesGrid').hidden = selectedView !== 'gallery';
+			document.getElementById('seriesList').hidden = selectedView !== 'list';
+
+			const galleryButton = document.getElementById('seriesGalleryToggle');
+			const listButton = document.getElementById('seriesListToggle');
+			galleryButton.classList.toggle('active', selectedView === 'gallery');
+			listButton.classList.toggle('active', selectedView === 'list');
+			galleryButton.setAttribute('aria-pressed', String(selectedView === 'gallery'));
+			listButton.setAttribute('aria-pressed', String(selectedView === 'list'));
+		};
+
+		const setSeriesView = (view) => {
+			const selectedView = view === 'list' ? 'list' : 'gallery';
+			const masterDefault = currentDashboardData?.global?.default_series_view || 'gallery';
+			if (selectedView === masterDefault) {
+				localStorage.removeItem(SERIES_VIEW_OVERRIDE_KEY);
+			} else {
+				localStorage.setItem(SERIES_VIEW_OVERRIDE_KEY, selectedView);
+			}
+			localStorage.removeItem('seriesView');
+			applySeriesView(selectedView);
+		};
+
+		const applyPreferredSeriesView = () => {
+			const override = getSeriesViewOverride();
+			const serverDefault = currentDashboardData?.global?.default_series_view || 'gallery';
+			applySeriesView(override || serverDefault);
+		};
+
+		applySeriesView(getSeriesViewOverride() || 'gallery');
+
 		// =====================================================================
 		// 2. STATE MANAGEMENT & SAFETY GUARDS
 		// =====================================================================
@@ -333,19 +400,9 @@
 			const toast = document.getElementById('customToast');
 			if (!toast) return;
 
-			const isDark = document.body.classList.contains('dark-mode');
 			toast.innerText = message;
-
-			if (isDark) {
-				toast.style.backgroundColor = isSuccess ? '#1b4332' : '#5c1a22';
-				toast.style.color = '#e9ecef';
-				toast.style.border = isSuccess ? '1px solid #2d6a4f' : '1px solid #842029';
-			} else {
-				toast.style.backgroundColor = isSuccess ? '#28a745' : '#dc3545';
-				toast.style.color = '#ffffff';
-				toast.style.border = 'none';
-			}
-
+			toast.classList.toggle('toast-success', isSuccess);
+			toast.classList.toggle('toast-error', !isSuccess);
 			toast.classList.add('active');
 			setTimeout(() => toast.classList.remove('active'), 3000);
 		};
@@ -512,17 +569,18 @@
 				const res = await fetch('/api/series');
 				const data = await res.json();
 				currentDashboardData = data;
+				applyPreferredSeriesView();
 
 				if (data.global) {
 					if (data.global.base_dir) baseDirInput.value = data.global.base_dir;
 
 					const logoutBtn = document.querySelector('.logout-btn');
 					if (logoutBtn) {
-						logoutBtn.style.setProperty('display', data.global.auth_enabled === "1" ? 'inline-block' : 'none', 'important');
+						logoutBtn.classList.toggle('is-visible', data.global.auth_enabled === "1");
 					}
 
 					authCheckbox.checked = data.global.auth_enabled === "1";
-					authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
+					authWrapper.classList.toggle('is-visible', authCheckbox.checked);
 
 					if (data.global.auth_username) document.getElementById('auth_username').value = data.global.auth_username;
 					if (data.global.auth_password) document.getElementById('auth_password').value = data.global.auth_password;
@@ -543,56 +601,150 @@
 					}
 				}
 
-				const tbody = document.querySelector('#seriesTable tbody');
-				tbody.innerHTML = '';
+				const seriesGrid = document.getElementById('seriesGrid');
+				const seriesListBody = document.querySelector('#seriesTable tbody');
+				seriesGrid.replaceChildren();
+				seriesListBody.replaceChildren();
 
-				if (!data.series || Object.keys(data.series).length === 0) {
-					tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No series tracked yet. Click "Add Series" to start monitoring feeds.</td></tr>';
-					return;
-				}
-
-				const sortedSeriesEntries = Object.entries(data.series).sort((a, b) => {
+				const sortedSeriesEntries = Object.entries(data.series || {}).sort((a, b) => {
 					const nameA = (a[1].name || a[0]).toLowerCase();
 					const nameB = (b[1].name || b[0]).toLowerCase();
 					return nameA.localeCompare(nameB);
 				});
 
+				if (sortedSeriesEntries.length === 0) {
+					const emptyMessage = document.createElement('p');
+					emptyMessage.className = 'series-empty-state';
+					emptyMessage.textContent = 'No series tracked yet. Click "Add Series" to start monitoring feeds.';
+					seriesGrid.appendChild(emptyMessage);
+
+					const emptyRow = document.createElement('tr');
+					const emptyCell = document.createElement('td');
+					emptyCell.colSpan = 4;
+					emptyCell.className = 'empty-state-cell';
+					emptyCell.textContent = emptyMessage.textContent;
+					emptyRow.appendChild(emptyCell);
+					seriesListBody.appendChild(emptyRow);
+				}
+
 				sortedSeriesEntries.forEach(([id, sData]) => {
 					const rawName = sData.name || id || '';
-					const cleanName = rawName.replace(/'/g, "\\'");
 					const episodes = sData.downloaded_episodes || [];
 					const isComplete = (sData.status === 'complete');
-
-					// Show "COMPLETE" when finished, otherwise show the latest episode or "IDLE"
 					const badgeText = isComplete ? 'COMPLETE' : (episodes.length > 0 ? `E${String(episodes[episodes.length - 1]).padStart(2, '0')}` : 'IDLE');
-					const badgeColor = isComplete ? 'var(--secondary-gray)' : (episodes.length > 0 ? 'var(--primary-success)' : 'var(--secondary-gray)');
+					const badgeClass = isComplete || episodes.length === 0 ? 'status-neutral' : 'status-success';
+
+					const card = document.createElement('article');
+					card.className = 'series-card';
+
+					const poster = document.createElement('img');
+					poster.className = 'series-poster';
+					poster.alt = `${rawName} poster`;
+					poster.loading = 'lazy';
+					poster.src = sData.poster || '/app-icon.png';
+					poster.onerror = () => {
+						poster.onerror = null;
+						poster.src = '/app-icon.png';
+					};
+					if (sData.url) {
+						const posterLink = document.createElement('a');
+						posterLink.className = 'series-poster-link';
+						posterLink.href = sData.url;
+						posterLink.target = '_blank';
+						posterLink.rel = 'noopener noreferrer';
+						posterLink.appendChild(poster);
+						card.appendChild(posterLink);
+					} else {
+						card.appendChild(poster);
+					}
+
+					const details = document.createElement('div');
+					details.className = 'series-card-details';
+
+					const status = document.createElement('span');
+					status.className = `series-card-status ${badgeClass}`;
+					status.textContent = badgeText;
+					details.appendChild(status);
+
+					const title = document.createElement('a');
+					title.className = 'series-card-title';
+					title.textContent = rawName;
+					if (sData.url) {
+						title.href = sData.url;
+						title.target = '_blank';
+						title.rel = 'noopener noreferrer';
+					}
+					details.appendChild(title);
+
+					const actions = document.createElement('div');
+					actions.className = 'series-card-actions';
+					const editButton = document.createElement('button');
+					editButton.className = 'action-btn edit';
+					editButton.textContent = 'Edit';
+					editButton.addEventListener('click', () => openEditSeriesModal(id));
+					const removeButton = document.createElement('button');
+					removeButton.className = 'action-btn remove';
+					removeButton.textContent = 'Remove';
+					removeButton.addEventListener('click', () => deleteSeries(id, rawName));
+					actions.append(editButton, removeButton);
+					details.appendChild(actions);
+
+					card.appendChild(details);
+					seriesGrid.appendChild(card);
 
 					const row = document.createElement('tr');
-					row.innerHTML = `
-						<td class="mobile-hide">
-							<span class="status-badge" style="background-color: ${badgeColor};">${badgeText}</span>
-						</td>
-						<td class="responsive-name-cell" data-latest="${badgeText}" data-badge-color="${badgeColor}" style="--badge-bg: ${badgeColor};">
-							<span class="series-title-text"><a href="${sData.url}" target="_blank" class="series-link"><b>${rawName}</b> 🌐</a></span>
-						</td>
-						<td class="mobile-hide"><code>${sData.path || ''}</code></td>
-						<td>
-							<button class="action-btn edit" onclick="openEditSeriesModal('${id}')">Edit</button>
-							<button class="action-btn remove" onclick="deleteSeries('${id}', '${cleanName}')">Remove</button>
-						</td>
-					`;
-					tbody.appendChild(row);
-				});
+					const latestCell = document.createElement('td');
+					latestCell.className = 'mobile-hide';
+					const latestBadge = document.createElement('span');
+					latestBadge.className = `status-badge ${badgeClass}`;
+					latestBadge.textContent = badgeText;
+					latestCell.appendChild(latestBadge);
 
-				document.querySelectorAll('.responsive-name-cell').forEach(cell => {
-					cell.style.setProperty('--badge-bg', cell.getAttribute('data-badge-color'));
+					const nameCell = document.createElement('td');
+					nameCell.className = 'responsive-name-cell';
+					nameCell.classList.add(badgeClass === 'status-success' ? 'series-status-success' : 'series-status-neutral');
+					nameCell.dataset.latest = badgeText;
+					const titleText = document.createElement('span');
+					titleText.className = 'series-title-text';
+					const seriesLink = document.createElement('a');
+					seriesLink.className = 'series-link';
+					if (sData.url) {
+						seriesLink.href = sData.url;
+						seriesLink.target = '_blank';
+						seriesLink.rel = 'noopener noreferrer';
+					}
+					const boldName = document.createElement('b');
+					boldName.textContent = rawName;
+					seriesLink.append(boldName, document.createTextNode(' 🌐'));
+					titleText.appendChild(seriesLink);
+					nameCell.appendChild(titleText);
+
+					const pathCell = document.createElement('td');
+					pathCell.className = 'mobile-hide';
+					const pathText = document.createElement('code');
+					pathText.textContent = sData.path || '';
+					pathCell.appendChild(pathText);
+
+					const actionsCell = document.createElement('td');
+					const listEditButton = document.createElement('button');
+					listEditButton.className = 'action-btn edit';
+					listEditButton.textContent = 'Edit';
+					listEditButton.addEventListener('click', () => openEditSeriesModal(id));
+					const listRemoveButton = document.createElement('button');
+					listRemoveButton.className = 'action-btn remove';
+					listRemoveButton.textContent = 'Remove';
+					listRemoveButton.addEventListener('click', () => deleteSeries(id, rawName));
+					actionsCell.append(listEditButton, listRemoveButton);
+
+					row.append(latestCell, nameCell, pathCell, actionsCell);
+					seriesListBody.appendChild(row);
 				});
 
 				const watchlistBody = document.getElementById('watchlistTableBody');
 				if (watchlistBody) {
 					const watchlistEntries = Object.entries(currentDashboardData.watchlist || {});
 					if (watchlistEntries.length === 0) {
-						watchlistBody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">No upcoming series on your watchlist.</td></tr>';
+						watchlistBody.innerHTML = '<tr><td colspan="2" class="empty-state-cell">No upcoming series on your watchlist.</td></tr>';
 					} else {
 						const grouped = {};
 						watchlistEntries.forEach(([wId, wData]) => {
@@ -609,7 +761,7 @@
 
 							// Server group header row spanning both columns
 							html += `<tr class="watchlist-group-header">
-								<td colspan="2" style="background: rgba(128, 128, 128, 0.12); font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px;">
+								<td colspan="2" class="watchlist-group-header-cell">
 									🌐 ${src} (${grouped[src].length})
 								</td>
 							</tr>`;
@@ -633,6 +785,7 @@
 
 				document.getElementById('settingAllowedDomains').value = currentDashboardData.global.allowed_domains || 'thenkiri.com,dramakey.com';
 				document.getElementById('settingMoviesDir').value = currentDashboardData.global.movies_dir || '/mnt/hdd/Movies';
+				document.getElementById('cache_dir').value = currentDashboardData.global.cache_dir || '';
 
 				const ntfyEnabledEl = document.getElementById('settingNtfyEnabled');
 				if (ntfyEnabledEl) {
@@ -672,6 +825,12 @@
 				const themeSelect = document.getElementById('settingDefaultTheme');
 				if (themeSelect) {
 					themeSelect.value = serverDefaultTheme;
+				}
+
+				const serverDefaultSeriesView = (currentDashboardData.global && currentDashboardData.global.default_series_view) || 'gallery';
+				const seriesViewSelect = document.getElementById('settingDefaultSeriesView');
+				if (seriesViewSelect) {
+					seriesViewSelect.value = serverDefaultSeriesView;
 				}
 
 				// Only apply global default if this device hasn't chosen its own theme yet
@@ -764,7 +923,7 @@
 					const queuedList = data.queued || [];
 
 					if (activeEntries.length === 0 && queuedList.length === 0) {
-						tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">No active or queued downloads.</td></tr>';
+						tbody.innerHTML = '<tr><td colspan="3" class="empty-state-cell">No active or queued downloads.</td></tr>';
 						return;
 					}
 
@@ -776,7 +935,7 @@
 						rowsHtml += `<tr>
 							<td><strong>${name}</strong></td>
 							<td>${epLabel}</td>
-							<td><span class="status-badge" style="background: var(--primary-success);">⬇️ ${pct}%</span></td>
+							<td><span class="status-badge status-success">⬇️ ${pct}%</span></td>
 						</tr>`;
 					});
 
@@ -784,7 +943,7 @@
 						rowsHtml += `<tr>
 							<td>${item.series_name}</td>
 							<td>Ep ${item.episode}</td>
-							<td><span class="status-badge" style="background: var(--secondary-gray);">⏳ Queued</span></td>
+							<td><span class="status-badge status-neutral">⏳ Queued</span></td>
 						</tr>`;
 					});
 
@@ -829,7 +988,7 @@
 		const clearSeriesSearchResults = () => {
 			const resultsBox = document.getElementById('seriesSearchResults');
 			if (resultsBox) {
-				resultsBox.style.display = 'none';
+				resultsBox.classList.remove('is-visible');
 				resultsBox.innerHTML = '';
 			}
 		};
@@ -896,6 +1055,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					base_dir: baseDirInput.value.trim(),
+					cache_dir: document.getElementById('cache_dir').value.trim(),
 					movies_dir: document.getElementById('settingMoviesDir').value.trim(),
 					auth_enabled: authCheckbox.checked ? "1" : "0",
 					auth_username: document.getElementById('auth_username').value.trim(),
@@ -903,7 +1063,8 @@
 					allowed_domains: document.getElementById('settingAllowedDomains').value.trim(),
 					ntfy_enabled: document.getElementById('settingNtfyEnabled').checked ? '1' : '0',
 					ntfy_topic: document.getElementById('settingNtfyTopic').value.trim(),
-					theme_mode: document.getElementById('settingDefaultTheme').value
+					theme_mode: document.getElementById('settingDefaultTheme').value,
+					default_series_view: document.getElementById('settingDefaultSeriesView').value
 				})
 			});
 			showToast('System application configuration saved successfully.');
@@ -947,7 +1108,7 @@
 			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
 			document.getElementById('seriesForm').reset();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
-			document.getElementById('modalEpisodesWrapper').style.display = 'none';
+			document.getElementById('modalEpisodesWrapper').classList.remove('is-visible');
 			updateDestinationPath();
 			
 			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
@@ -975,7 +1136,7 @@
 			const recheckWrapper = document.getElementById('modalRecheckWrapper');
 			const recheckBox = document.getElementById('editSeriesRecheck');
 			if (recheckWrapper && recheckBox) {
-				recheckWrapper.style.display = 'flex';
+				recheckWrapper.classList.add('is-visible');
 				recheckBox.checked = (sData.status !== 'complete');
 			}
 
@@ -985,15 +1146,23 @@
 
 			const episodes = sData.downloaded_episodes || [];
 			if (episodes && episodes.length > 0) {
-				wrapper.style.display = 'block';
+				wrapper.classList.add('is-visible');
 				episodes.forEach(ep => {
 					const label = document.createElement('label');
-					label.style.cssText = "display: flex; align-items: center; gap: 4px; font-family: monospace; font-size: 0.9rem; cursor: pointer; background: #fff; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; user-select: none;";
-					label.innerHTML = `<input type="checkbox" name="modal_episodes" value="${ep}" checked style="width:auto; margin:0; cursor:pointer;"> <span>EP ${ep.padStart(2, '0')}</span>`;
+					label.className = 'episode-checkbox-label';
+					const checkbox = document.createElement('input');
+					checkbox.type = 'checkbox';
+					checkbox.name = 'modal_episodes';
+					checkbox.value = ep;
+					checkbox.checked = true;
+					checkbox.className = 'episode-checkbox';
+					const episodeLabel = document.createElement('span');
+					episodeLabel.textContent = `EP ${String(ep).padStart(2, '0')}`;
+					label.append(checkbox, episodeLabel);
 					checklistContainer.appendChild(label);
 				});
 			} else {
-				wrapper.style.display = 'none';
+				wrapper.classList.remove('is-visible');
 			}
 
 			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
@@ -1006,10 +1175,10 @@
 			clearSeriesSearchResults();
 			document.getElementById('seriesForm').reset();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
-			document.getElementById('modalEpisodesWrapper').style.display = 'none';
+			document.getElementById('modalEpisodesWrapper').classList.remove('is-visible');
 
 			const recheckWrapper = document.getElementById('modalRecheckWrapper');
-			if (recheckWrapper) recheckWrapper.style.display = 'none';
+			if (recheckWrapper) recheckWrapper.classList.remove('is-visible');
 
 			document.getElementById('addSeriesModal').classList.remove('active');
 
@@ -1021,7 +1190,7 @@
 
 		// Security UI Field Mechanics Toggles
 		authCheckbox.addEventListener('change', () => {
-			authWrapper.style.display = authCheckbox.checked ? 'block' : 'none';
+			authWrapper.classList.toggle('is-visible', authCheckbox.checked);
 		});
 
 		const toggleFieldVisibility = (fieldId, element) => {
@@ -1064,7 +1233,7 @@
 
 			const resultsBox = document.getElementById('seriesSearchResults');
 			if (resultsBox) {
-				resultsBox.style.display = 'none';
+				resultsBox.classList.remove('is-visible');
 				resultsBox.innerHTML = '';
 			}
 			showToast('Series selected!');
@@ -1074,7 +1243,7 @@
 			const nameVal = document.getElementById('name').value.trim();
 			const resultsBox = document.getElementById('seriesSearchResults');
 			if (resultsBox) {
-				resultsBox.style.display = 'none';
+				resultsBox.classList.remove('is-visible');
 				resultsBox.innerHTML = '';
 			}
 
@@ -1103,18 +1272,18 @@
 						selectSearchResult(data.matches[0].title, data.matches[0].url);
 						showToast(`Found exact match on ${data.matches[0].source}!`);
 					} else if (resultsBox) {
-						resultsBox.innerHTML = `<div style="padding: 8px 12px; font-size: 0.85rem; font-weight: 600; background: rgba(128,128,128,0.12); border-bottom: 1px solid var(--light-border);">
+						resultsBox.innerHTML = `<div class="search-results-heading">
 							Multiple matches found (${data.matches.length}) — tap one to select:
 						</div>` + data.matches.map((m, idx) => `
 							<div onclick="selectSearchResult(this.dataset.title, this.dataset.url)"
 								 data-title="${m.title.replace(/"/g, '&quot;')}"
 								 data-url="${m.url.replace(/"/g, '&quot;')}"
-								 style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.15); font-size: 0.9rem;">
-								<div style="font-weight: 600;">${m.title}</div>
-								<div style="font-size: 0.78rem; opacity: 0.75;">🌐 ${m.source}</div>
+								 class="search-result-item">
+								<div class="search-result-title">${m.title}</div>
+								<div class="search-result-source">🌐 ${m.source}</div>
 							</div>
 						`).join('');
-						resultsBox.style.display = 'block';
+						resultsBox.classList.add('is-visible');
 					}
 				} else {
 					showToast(data.message || 'No matching series found.', false);
@@ -1163,7 +1332,7 @@
 		const clearWatchlistSearchResults = () => {
 			const resultsBox = document.getElementById('watchlistSearchResults');
 			if (resultsBox) {
-				resultsBox.style.display = 'none';
+				resultsBox.classList.remove('is-visible');
 				resultsBox.innerHTML = '';
 			}
 		};
@@ -1236,20 +1405,20 @@
 
 				if (res.ok && data.matches && data.matches.length > 0 && resultsBox) {
 					resultsBox.innerHTML = `
-						<div style="padding: 8px 12px; font-size: 0.85rem; font-weight: 600; background: rgba(128,128,128,0.12); border-bottom: 1px solid var(--light-border);">
+						<div class="search-results-heading">
 							Already on ${source} (${data.matches.length}) — tap to promote to Feeds:
 						</div>
 						${data.matches.map(m => `
 							<div onclick="promoteWatchlistSearchMatch(this.dataset.title, this.dataset.url)"
 								 data-title="${m.title.replace(/"/g, '&quot;')}"
 								 data-url="${m.url.replace(/"/g, '&quot;')}"
-								 style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.15); font-size: 0.9rem;">
-								<div style="font-weight: 600;">${m.title}</div>
-								<div style="font-size: 0.78rem; opacity: 0.75;">🚀 Tap to add to Feeds &amp; download now</div>
+								 class="search-result-item">
+								<div class="search-result-title">${m.title}</div>
+								<div class="search-result-source">🚀 Tap to add to Feeds &amp; download now</div>
 							</div>
 						`).join('')}
-						<div style="padding: 10px 12px; text-align: center; background: rgba(128,128,128,0.06);">
-							<button type="button" class="secondary-btn" style="width: 100%;"
+						<div class="search-results-footer">
+							<button type="button" class="secondary-btn full-width-btn"
 								data-name="${name.replace(/"/g, '&quot;')}"
 								data-source="${source.replace(/"/g, '&quot;')}"
 								onclick="saveToWatchlistDirect(this.dataset.name, this.dataset.source)">
@@ -1257,7 +1426,7 @@
 							</button>
 						</div>
 					`;
-					resultsBox.style.display = 'block';
+					resultsBox.classList.add('is-visible');
 				} else {
 					// Not found on the site yet -> save directly to Watchlist
 					await saveToWatchlistDirect(name, source);
@@ -1440,7 +1609,7 @@
 				editModeId = null;
 				document.getElementById('seriesForm').reset();
 				document.getElementById('modalEpisodesChecklist').innerHTML = '';
-				document.getElementById('modalEpisodesWrapper').style.display = 'none';
+				document.getElementById('modalEpisodesWrapper').classList.remove('is-visible');
 				seriesModal.classList.remove('active');
 				return; 
 			}

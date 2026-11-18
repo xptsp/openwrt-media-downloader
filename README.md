@@ -18,7 +18,9 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 ## ✨ Features
 
 * **🎛️ Low Memory Footprint:** Built entirely using Python's native standard libraries (`http.server`, `urllib`, and `json`). Does not require heavy third-party framework dependencies like FastAPI, Flask, or BeautifulSoup, preserving host RAM.
-* **📱 Progressive Web App (PWA) & Android Share Target:** Features a responsive, mobile-first dashboard with folder-style tabs, dark mode, and bottom-anchored mobile controls. Installs directly to your home screen and integrates into the mobile Share sheet to clean titles, detect `Season 02+` subfolders, and pre-fill Jellyfin paths in one tap.
+* **📱 Progressive Web App (PWA) & Android Share Target:** Features a responsive, mobile-first dashboard with folder-style tabs, light/dark themes, and bottom-anchored mobile controls. Installs directly to your home screen and integrates into the mobile Share sheet to clean titles, detect `Season 02+` subfolders, and pre-fill Jellyfin paths in one tap.
+* **🖼️ Switchable Series Views:** Choose between a responsive poster gallery and the classic series table. The choice is saved per device/browser, with a configurable default for devices that have not chosen an override.
+* **🗂️ Local Poster Cache:** Saves series posters in a configurable cache directory and serves the cached images from the dashboard. Existing poster files are reused on subsequent syncs; the image is fetched again if its cache file is missing.
 * **👀 Automated Watchlist & Site Search:** Tracks upcoming shows and movies grouped by source site without needing a URL up front. Probes sites on save or during scheduled syncs, offers interactive multi-match selection when multiple titles match, and auto-promotes releases straight into active downloads.
 * **🎬 Separate TV Series & Movie Routing:** Supports both multi-episode TV series (`Show Name - S01E01.mkv` in `base_dir`) and standalone movies (`Movie Title.mkv` in `movies_dir`), automatically marking movies `complete` once downloaded.
 * **🔔 Instant Mobile Push Notifications (`ntfy.sh`):** Sends real-time alerts to your phone whenever an episode finishes downloading, a movie is ready, or a Watchlist title promotes—complete with an enable/mute toggle and live test button in Settings.
@@ -48,7 +50,7 @@ The system maintains a clean, lightweight directory footprint when installed:
         ├── manifest.json               # Progressive Web App & Share Target manifest
         ├── sw.js                       # Offline PWA service routing worker
         ├── app-icon.png                # Cohesive branding favicon and app launcher asset
-        └── styles.css                  # Responsive light/dark theme layout stylesheet
+        └── style.css                   # Responsive light/dark theme layout stylesheet
 ```
 
 ---
@@ -77,6 +79,7 @@ config global 'main'
     option bind_address '0.0.0.0'
     option port '8080'
     option base_dir '/mnt/hdd/KDramas'
+    option cache_dir '/mnt/hdd/KDramas/.media-downloader-cache'
     option movies_dir '/mnt/hdd/Movies'
     option auth_enabled '1'
     option auth_username 'admin'
@@ -84,6 +87,8 @@ config global 'main'
     option allowed_domains 'thenkiri.com,dramakey.com'
     option ntfy_enabled '1'
     option ntfy_topic 'your-private-ntfy-topic'
+    option theme_mode 'auto'
+    option default_series_view 'gallery'
 
 config series 'the-divorce-insurance'
     option name 'The Divorce Insurance'

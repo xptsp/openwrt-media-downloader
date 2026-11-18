@@ -4,8 +4,11 @@ import os
 import sys
 import json
 import re
+import hashlib
+import tempfile
 import urllib.request
 import urllib.parse
+from html import unescape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
@@ -100,9 +103,11 @@ def ensure_config_exists():
 			f.write("    option bind_address '0.0.0.0'\n")
 			f.write("    option port '8080'\n")
 			f.write("    option base_dir '/mnt/sda1/Downloads'\n")
+			f.write("    option cache_dir '/mnt/sda1/Downloads/.media-downloader-cache'\n")
 			f.write("    option auth_enabled '0'\n")
 			f.write("    option auth_username 'admin'\n")
-			f.write("    option auth_password 'admin'\n\n")
+			f.write("    option auth_password 'admin'\n")
+			f.write("    option default_series_view 'gallery'\n\n")
 
 ##############################################################################################
 def get_storage_metrics(path):
@@ -136,6 +141,7 @@ def read_uci_config():
 			"bind_address": "0.0.0.0",
 			"port": "8080",
 			"base_dir": "/mnt/sda1/Downloads",
+			"cache_dir": "",
 			"movies_dir": "/mnt/hdd/Movies",
 			"auth_enabled": "0",
 			"auth_username": "admin",
@@ -143,7 +149,8 @@ def read_uci_config():
 			"allowed_domains": "thenkiri.com,dramakey.com",
 			"ntfy_topic": "",
 			"ntfy_enabled": "1",
-			"theme_mode": "auto"
+			"theme_mode": "auto",
+			"default_series_view": "gallery"
 		},
 		"series": {},
 		"watchlist": {}
@@ -164,7 +171,9 @@ def read_uci_config():
 					config_dict["series"][current_section_name] = {
 						"downloaded_episodes": [],
 						"last_update": "0",
-						"status": "ongoing"
+						"status": "ongoing",
+						"poster": "",
+						"poster_cache_file": ""
 					}
 				elif current_section_type == "watchlist":
 					config_dict["watchlist"][current_section_name] = {
@@ -185,6 +194,10 @@ def read_uci_config():
 					else:
 						config_dict["series"][current_section_name][key] = val
 
+	if not config_dict["global"].get("cache_dir"):
+		base_dir = config_dict["global"].get("base_dir") or "/mnt/sda1/Downloads"
+		config_dict["global"]["cache_dir"] = os.path.join(base_dir, ".media-downloader-cache")
+
 	metrics = get_storage_metrics(config_dict["global"].get("base_dir", "/"))
 	config_dict["global"].update(metrics)
 	config_dict["global"]["current_time"] = str(int(time.time()))
@@ -199,6 +212,7 @@ def write_uci_config(config_data):
 		f.write(f"    option bind_address '{config_data['global'].get('bind_address', '0.0.0.0')}'\n")
 		f.write(f"    option port '{config_data['global'].get('port', '8080')}'\n")
 		f.write(f"    option base_dir '{config_data['global'].get('base_dir', '/mnt/sda1/Downloads')}'\n")
+		f.write(f"    option cache_dir '{config_data['global'].get('cache_dir', '')}'\n")
 		f.write(f"    option movies_dir '{config_data['global'].get('movies_dir', '/mnt/hdd/Movies')}'\n")
 		f.write(f"    option auth_enabled '{config_data['global'].get('auth_enabled', '0')}'\n")
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
@@ -206,7 +220,8 @@ def write_uci_config(config_data):
 		f.write(f"    option allowed_domains '{config_data['global'].get('allowed_domains', 'thenkiri.com,dramakey.com')}'\n")
 		f.write(f"    option ntfy_topic '{config_data['global'].get('ntfy_topic', '')}'\n")
 		f.write(f"    option ntfy_enabled '{config_data['global'].get('ntfy_enabled', '1')}'\n")
-		f.write(f"    option theme_mode '{config_data['global'].get('theme_mode', 'auto')}'\n\n")
+		f.write(f"    option theme_mode '{config_data['global'].get('theme_mode', 'auto')}'\n")
+		f.write(f"    option default_series_view '{config_data['global'].get('default_series_view', 'gallery')}'\n\n")
 
 		for s_id, s_data in config_data["series"].items():
 			f.write(f"config series '{s_id}'\n")
@@ -216,6 +231,10 @@ def write_uci_config(config_data):
 			f.write(f"    option status '{s_data.get('status', 'ongoing')}'\n")
 			f.write(f"    option last_update '{s_data.get('last_update', '0')}'\n")
 			f.write(f"    option type '{s_data.get('type', 'series')}'\n")
+			if s_data.get('poster'):
+				f.write(f"    option poster '{s_data['poster']}'\n")
+			if s_data.get('poster_cache_file'):
+				f.write(f"    option poster_cache_file '{s_data['poster_cache_file']}'\n")
 			eps = ",".join(s_data.get('downloaded_episodes', []))
 			f.write(f"    option downloaded_episodes '{eps}'\n\n")
 
@@ -701,6 +720,124 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 ##############################################################################################
 SYNC_LOCK = threading.Lock()
 
+def extract_series_poster(html, page_url):
+	"""Returns the page's Open Graph image URL, if one is available."""
+	match = re.search(
+		r'<meta\b(?=[^>]*\bproperty=["\']og:image["\'])(?=[^>]*\bcontent=["\']([^"\']+)["\'])[^>]*>',
+		html,
+		re.IGNORECASE
+	)
+	if not match:
+		match = re.search(
+			r'<img\b(?=[^>]*\bclass=["\'][^"\']*\bwp-post-image\b[^"\']*["\'])(?=[^>]*\b(?:data-src|src)=["\']([^"\']+)["\'])[^>]*>',
+			html,
+			re.IGNORECASE
+		)
+	if not match:
+		return ""
+
+	poster_url = urllib.parse.urljoin(page_url, unescape(match.group(1).strip()))
+	if urllib.parse.urlparse(poster_url).scheme not in ("http", "https"):
+		return ""
+	return urllib.parse.quote(poster_url, safe=":/?&=%#-._~!$()*+,;@")
+
+POSTER_EXTENSIONS = {
+	"image/avif": ".avif",
+	"image/gif": ".gif",
+	"image/jpeg": ".jpg",
+	"image/pjpeg": ".jpg",
+	"image/png": ".png",
+	"image/webp": ".webp"
+}
+POSTER_MIME_TYPES = {
+	".avif": "image/avif",
+	".gif": "image/gif",
+	".jpg": "image/jpeg",
+	".png": "image/png",
+	".webp": "image/webp"
+}
+MAX_POSTER_BYTES = 8 * 1024 * 1024
+
+def get_cache_directory(config):
+	cache_dir = config["global"].get("cache_dir", "").strip()
+	if not cache_dir:
+		base_dir = config["global"].get("base_dir") or "/mnt/sda1/Downloads"
+		cache_dir = os.path.join(base_dir, ".media-downloader-cache")
+	return os.path.abspath(os.path.expanduser(cache_dir))
+
+def get_series_poster_cache_path(series_id, cache_dir, cache_filename):
+	if not cache_filename:
+		return ""
+	file_hash = hashlib.sha256(series_id.encode("utf-8")).hexdigest()
+	if not re.fullmatch(rf"{file_hash}\.(?:avif|gif|jpg|png|webp)", cache_filename):
+		return ""
+	return os.path.join(cache_dir, cache_filename)
+
+def cache_series_poster(poster_url, cache_dir, series_id, desktop_headers):
+	"""Downloads one image into the configured poster cache and returns its safe filename."""
+	parsed_url = urllib.parse.urlparse(poster_url)
+	if parsed_url.scheme not in ("http", "https") or not parsed_url.netloc:
+		log_message(f"[Poster Cache] Refusing invalid image URL for '{series_id}'.")
+		return ""
+
+	temp_path = None
+	try:
+		os.makedirs(cache_dir, exist_ok=True)
+		headers = dict(desktop_headers)
+		headers["Accept"] = "image/avif,image/webp,image/*,*/*;q=0.8"
+		req = urllib.request.Request(poster_url, headers=headers)
+		with urllib.request.urlopen(req, timeout=15) as res:
+			content_type = res.headers.get_content_type().lower()
+			extension = POSTER_EXTENSIONS.get(content_type)
+			if not extension:
+				log_message(f"[Poster Cache] Skipping unsupported image type '{content_type}' for '{series_id}'.")
+				return ""
+
+			content_length = res.headers.get("Content-Length")
+			if content_length and int(content_length) > MAX_POSTER_BYTES:
+				log_message(f"[Poster Cache] Image for '{series_id}' exceeds the 8 MB size limit.")
+				return ""
+			image_data = res.read(MAX_POSTER_BYTES + 1)
+
+		if not image_data or len(image_data) > MAX_POSTER_BYTES:
+			log_message(f"[Poster Cache] Image for '{series_id}' is empty or exceeds the 8 MB size limit.")
+			return ""
+
+		file_hash = hashlib.sha256(series_id.encode("utf-8")).hexdigest()
+		cache_filename = f"{file_hash}{extension}"
+		cache_path = os.path.join(cache_dir, cache_filename)
+		with tempfile.NamedTemporaryFile(dir=cache_dir, prefix=".poster-", delete=False) as cache_file:
+			temp_path = cache_file.name
+			cache_file.write(image_data)
+		os.replace(temp_path, cache_path)
+		temp_path = None
+		return cache_filename
+	except Exception as err:
+		log_message(f"[Poster Cache] Failed caching image for '{series_id}': {err}")
+		return ""
+	finally:
+		if temp_path and os.path.exists(temp_path):
+			try:
+				os.remove(temp_path)
+			except OSError as cleanup_err:
+				log_message(f"[Poster Cache] Failed removing temporary image for '{series_id}': {cleanup_err}")
+
+def persist_series_poster(series_id, series_url, poster_url, cache_filename):
+	live_config = read_uci_config()
+	live_series = live_config["series"].get(series_id)
+	if not live_series or live_series.get("url") != series_url:
+		return
+
+	changed = False
+	if poster_url and live_series.get("poster") != poster_url:
+		live_series["poster"] = poster_url
+		changed = True
+	if cache_filename and live_series.get("poster_cache_file") != cache_filename:
+		live_series["poster_cache_file"] = cache_filename
+		changed = True
+	if changed:
+		write_uci_config(live_config)
+
 def run_downloader_cycle():
 	if not SYNC_LOCK.acquire(blocking=False):
 		log_message("[Sync Cycle] Sync cycle already in progress. Skipping duplicate trigger.")
@@ -724,24 +861,49 @@ def run_downloader_cycle():
 
 		check_watchlist_promotions(desktop_headers)
 		config = read_uci_config()
+		cache_dir = get_cache_directory(config)
 
 		for s_id, s_data in config["series"].items():
 			if ABORT_SYNC_FLAG:
 				log_message("[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
 				break
 
-			if s_data.get('status') == 'complete':
-				continue
-
 			url = s_data.get('url', '')
 			dest_path = s_data.get('path', '')
-			if not url or not dest_path:
+			if not url:
+				continue
+
+			poster_url = s_data.get('poster', '')
+			cache_filename = s_data.get('poster_cache_file', '')
+			cached_poster_path = get_series_poster_cache_path(s_id, cache_dir, cache_filename)
+			has_cached_poster = bool(cached_poster_path and os.path.isfile(cached_poster_path))
+
+			if s_data.get('status') == 'complete' and has_cached_poster:
+				continue
+
+			if s_data.get('status') == 'complete' and poster_url:
+				cache_filename = cache_series_poster(poster_url, cache_dir, s_id, desktop_headers)
+				if cache_filename:
+					persist_series_poster(s_id, url, poster_url, cache_filename)
+					s_data['poster_cache_file'] = cache_filename
 				continue
 
 			try:
 				req = urllib.request.Request(url, headers=desktop_headers)
 				with urllib.request.urlopen(req) as res:
 					html = res.read().decode('utf-8', errors='ignore')
+
+				poster_url = poster_url or extract_series_poster(html, url)
+				if poster_url:
+					if not has_cached_poster:
+						cache_filename = cache_series_poster(poster_url, cache_dir, s_id, desktop_headers)
+					persist_series_poster(s_id, url, poster_url, cache_filename)
+					s_data['poster'] = poster_url
+					if cache_filename:
+						s_data['poster_cache_file'] = cache_filename
+
+				if s_data.get('status') == 'complete' or not dest_path:
+					continue
 
 				with open("/tmp/downloader_debug.html", "w", encoding="utf-8") as df:
 					df.write(html)
@@ -1080,11 +1242,58 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				self.end_headers()
 			return
 		#======================================================================
+		elif self.path.startswith('/api/posters/'):
+			s_id = urllib.parse.urlsplit(self.path).path.rsplit('/', 1)[-1]
+			if not re.fullmatch(r'^[a-z0-9_-]+$', s_id):
+				self.send_response(404)
+				self.end_headers()
+				return
+
+			config = read_uci_config()
+			series_data = config["series"].get(s_id, {})
+			cache_path = get_series_poster_cache_path(
+				s_id,
+				get_cache_directory(config),
+				series_data.get("poster_cache_file", "")
+			)
+			if not cache_path or not os.path.isfile(cache_path):
+				self.send_response(404)
+				self.end_headers()
+				return
+
+			content_type = POSTER_MIME_TYPES.get(os.path.splitext(cache_path)[1].lower())
+			if not content_type:
+				self.send_response(404)
+				self.end_headers()
+				return
+
+			with open(cache_path, "rb") as poster_file:
+				poster_data = poster_file.read()
+			self.send_response(200)
+			self.send_header('Content-Type', content_type)
+			self.send_header('Content-Length', str(len(poster_data)))
+			self.send_header('Cache-Control', 'private, max-age=86400')
+			self.send_header('X-Content-Type-Options', 'nosniff')
+			self.end_headers()
+			self.wfile.write(poster_data)
+			return
+		#======================================================================
 		elif self.path == '/api/series':
+			config = read_uci_config()
+			cache_dir = get_cache_directory(config)
+			for s_id, series_data in config["series"].items():
+				cache_path = get_series_poster_cache_path(
+					s_id,
+					cache_dir,
+					series_data.get("poster_cache_file", "")
+				)
+				series_data["poster"] = f"/api/posters/{s_id}" if cache_path and os.path.isfile(cache_path) else ""
+				series_data.pop("poster_cache_file", None)
+
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
-			self.wfile.write(json.dumps(read_uci_config()).encode('utf-8'))
+			self.wfile.write(json.dumps(config).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path == '/api/logs':
@@ -1238,6 +1447,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			if s_id == '_config':
 				if "base_dir" in data:
 					config["global"]["base_dir"] = data["base_dir"]
+				if "cache_dir" in data:
+					config["global"]["cache_dir"] = str(data["cache_dir"]).strip()
 				if "movies_dir" in data:
 					config["global"]["movies_dir"] = data["movies_dir"].strip()
 				if "auth_enabled" in data:
@@ -1259,6 +1470,10 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					mode_val = str(data["theme_mode"]).strip().lower()
 					if mode_val in ("auto", "light", "dark"):
 						config["global"]["theme_mode"] = mode_val
+				if "default_series_view" in data:
+					view_val = str(data["default_series_view"]).strip().lower()
+					if view_val in ("gallery", "list"):
+						config["global"]["default_series_view"] = view_val
 
 				write_uci_config(config)
 				self.send_response(200)
