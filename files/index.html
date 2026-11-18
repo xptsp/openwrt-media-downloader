@@ -104,11 +104,12 @@
 							<th>Series</th>
 							<th>Episode</th>
 							<th>Status</th>
+							<th>Action</th>
 						</tr>
 					</thead>
 					<tbody id="queueTableBody">
 						<tr>
-							<td colspan="3" class="empty-state-cell">No active or queued downloads.</td>
+							<td colspan="4" class="empty-state-cell">No active or queued downloads.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -321,6 +322,8 @@
 		const authWrapper = document.getElementById('auth_credentials_wrapper');
 
 		let logInterval = null;
+		let queueHadWork = false;
+		let queueCompletionDismissed = false;
 		let currentDashboardData = null;
 		let editModeId = null;
 
@@ -443,6 +446,15 @@
 				'watchlist-tab': '/watchlist'
 			};
 			const targetUrl = tabMap[tabId] || '/series';
+
+			if (tabId !== 'queue-tab') {
+				const queueEmptyState = document.querySelector('#queueTableBody .empty-state-cell');
+				if (queueEmptyState && queueEmptyState.textContent === 'All downloads are complete.') {
+					queueEmptyState.textContent = 'No active or queued downloads.';
+					queueHadWork = false;
+					queueCompletionDismissed = true;
+				}
+			}
 
 			// Toggle active styling states across views
 			document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -922,34 +934,88 @@
 					const activeEntries = Object.entries(data.active || {});
 					const queuedList = data.queued || [];
 
+					if (activeEntries.length > 0 || queuedList.length > 0) {
+						queueHadWork = true;
+						queueCompletionDismissed = false;
+					}
+
 					if (activeEntries.length === 0 && queuedList.length === 0) {
-						tbody.innerHTML = '<tr><td colspan="3" class="empty-state-cell">No active or queued downloads.</td></tr>';
+						const emptyMessage = data.searching
+							? 'Searching for downloads...'
+							: queueHadWork && !queueCompletionDismissed
+							? 'All downloads are complete.'
+							: 'No active or queued downloads.';
+						tbody.innerHTML = `<tr><td colspan="4" class="empty-state-cell">${emptyMessage}</td></tr>`;
 						return;
 					}
 
-					let rowsHtml = '';
+					tbody.replaceChildren();
 
 					activeEntries.forEach(([name, info]) => {
 						const pct = typeof info === 'object' ? (info.percent || 0) : info;
 						const epLabel = (typeof info === 'object' && info.episode) ? `Ep ${info.episode}` : 'Active';
-						rowsHtml += `<tr>
-							<td><strong>${name}</strong></td>
-							<td>${epLabel}</td>
-							<td><span class="status-badge status-success">⬇️ ${pct}%</span></td>
-						</tr>`;
+						const row = document.createElement('tr');
+						const nameCell = document.createElement('td');
+						const strongName = document.createElement('strong');
+						strongName.textContent = name;
+						nameCell.appendChild(strongName);
+						const episodeCell = document.createElement('td');
+						episodeCell.textContent = epLabel;
+						const statusCell = document.createElement('td');
+						const statusBadge = document.createElement('span');
+						statusBadge.className = 'status-badge status-success';
+						statusBadge.textContent = `⬇️ ${pct}%`;
+						statusCell.appendChild(statusBadge);
+						row.append(nameCell, episodeCell, statusCell, document.createElement('td'));
+						tbody.appendChild(row);
 					});
 
 					queuedList.forEach(item => {
-						rowsHtml += `<tr>
-							<td>${item.series_name}</td>
-							<td>Ep ${item.episode}</td>
-							<td><span class="status-badge status-neutral">⏳ Queued</span></td>
-						</tr>`;
+						const row = document.createElement('tr');
+						const nameCell = document.createElement('td');
+						nameCell.textContent = item.series_name || item.series_id || 'Unknown';
+						const episodeCell = document.createElement('td');
+						episodeCell.textContent = `Ep ${item.episode}`;
+						const statusCell = document.createElement('td');
+						const statusBadge = document.createElement('span');
+						statusBadge.className = 'status-badge status-neutral';
+						statusBadge.textContent = '⏳ Queued';
+						statusCell.appendChild(statusBadge);
+						const actionCell = document.createElement('td');
+						const removeButton = document.createElement('button');
+						removeButton.type = 'button';
+						removeButton.className = 'action-btn remove';
+						removeButton.textContent = 'Remove';
+						removeButton.addEventListener('click', () => removeQueuedDownload(item.series_id, item.episode, item.series_name));
+						actionCell.appendChild(removeButton);
+						row.append(nameCell, episodeCell, statusCell, actionCell);
+						tbody.appendChild(row);
 					});
-
-					tbody.innerHTML = rowsHtml;
 				})
 				.catch(() => {});
+		};
+
+		const removeQueuedDownload = (seriesId, episode, seriesName) => {
+			showConfirmModal('🗑️ Remove Queued Download', `Are you sure you want to remove "${seriesName}" Episode ${episode} from the queue?`, async () => {
+				try {
+					const res = await fetch('/api/queue/remove', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ series_id: seriesId, episode })
+					});
+					if (res.ok) {
+						const data = await res.json();
+						showToast(data.removed ? 'Download removed from queue.' : 'Download is no longer pending.', data.removed);
+						queueHadWork = false;
+						queueCompletionDismissed = true;
+						fetchQueueStatus();
+					} else {
+						showToast('Failed to remove download from queue.', false);
+					}
+				} catch (error) {
+					showToast('Failed to remove download from queue.', false);
+				}
+			});
 		};
 
 		const clearDownloadQueue = () => {
@@ -958,6 +1024,8 @@
 				if (res.ok) {
 					const data = await res.json();
 					showToast(`Cleared ${data.cleared || 0} pending item(s) from queue.`);
+					queueHadWork = false;
+					queueCompletionDismissed = true;
 					if (typeof fetchQueueStatus === 'function') {
 						fetchQueueStatus();
 					}
@@ -973,6 +1041,8 @@
 				if (res.ok) {
 					const data = await res.json();
 					showToast(`Stopped active download and cleared ${data.cleared || 0} queued item(s).`);
+					queueHadWork = false;
+					queueCompletionDismissed = true;
 					if (typeof fetchQueueStatus === 'function') {
 						fetchQueueStatus();
 					}

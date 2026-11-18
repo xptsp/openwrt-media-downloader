@@ -36,6 +36,59 @@ session_lock = threading.Lock()
 ##############################################################################################
 # Thread-safe queue containing dictionaries of tasks: {"series_id": ..., "episode": ..., "url": ..., "path": ...}
 DOWNLOAD_QUEUE = queue.Queue()
+DOWNLOAD_TASK_LOCK = threading.Lock()
+SCHEDULED_DOWNLOAD_TASKS = set()
+
+def download_task_key(task):
+	return (str(task.get("series_id", "")), str(task.get("episode", "")))
+
+def enqueue_download_task(task):
+	key = download_task_key(task)
+	with DOWNLOAD_TASK_LOCK:
+		if key in SCHEDULED_DOWNLOAD_TASKS:
+			return False
+		SCHEDULED_DOWNLOAD_TASKS.add(key)
+		try:
+			DOWNLOAD_QUEUE.put(task)
+		except Exception:
+			SCHEDULED_DOWNLOAD_TASKS.discard(key)
+			raise
+	return True
+
+def release_download_task(task):
+	with DOWNLOAD_TASK_LOCK:
+		SCHEDULED_DOWNLOAD_TASKS.discard(download_task_key(task))
+
+def remove_queued_download_task(series_id, episode):
+	key = (str(series_id), str(episode))
+	with DOWNLOAD_TASK_LOCK:
+		with DOWNLOAD_QUEUE.mutex:
+			queued_tasks = list(DOWNLOAD_QUEUE.queue)
+			removed_tasks = [task for task in queued_tasks if download_task_key(task) == key]
+			if not removed_tasks:
+				return 0
+			DOWNLOAD_QUEUE.queue.clear()
+			DOWNLOAD_QUEUE.queue.extend(
+				task for task in queued_tasks if download_task_key(task) != key
+			)
+			DOWNLOAD_QUEUE.unfinished_tasks = max(0, DOWNLOAD_QUEUE.unfinished_tasks - len(removed_tasks))
+			SCHEDULED_DOWNLOAD_TASKS.discard(key)
+			if DOWNLOAD_QUEUE.unfinished_tasks == 0:
+				DOWNLOAD_QUEUE.all_tasks_done.notify_all()
+	return len(removed_tasks)
+
+def clear_pending_download_tasks():
+	with DOWNLOAD_TASK_LOCK:
+		with DOWNLOAD_QUEUE.mutex:
+			cleared_tasks = list(DOWNLOAD_QUEUE.queue)
+			cleared_count = len(cleared_tasks)
+			DOWNLOAD_QUEUE.queue.clear()
+			DOWNLOAD_QUEUE.unfinished_tasks = max(0, DOWNLOAD_QUEUE.unfinished_tasks - cleared_count)
+			for task in cleared_tasks:
+				SCHEDULED_DOWNLOAD_TASKS.discard(download_task_key(task))
+			if DOWNLOAD_QUEUE.unfinished_tasks == 0:
+				DOWNLOAD_QUEUE.all_tasks_done.notify_all()
+	return cleared_count
 
 # Shared dictionary to hold progress updates for the CGI frontend /api/progress endpoint
 ACTIVE_DOWNLOADS = {}
@@ -326,11 +379,14 @@ def background_download_worker():
 	log_message("[Queue Engine] Thread initialization matrix active. Background download worker standing by...")
 
 	while True:
+		task = None
 		try:
 			# Blocks indefinitely until an item becomes available in the queue
 			task = DOWNLOAD_QUEUE.get()
 			if ABORT_SYNC_FLAG:
 				DOWNLOAD_QUEUE.task_done()
+				release_download_task(task)
+				task = None
 				continue
 
 			s_id = task.get("series_id")
@@ -385,8 +441,13 @@ def background_download_worker():
 				log_message(f"[Queue Engine] Alert: Download pipeline failed or aborted for [{series_name}] Ep {ep_num}.")
 
 			DOWNLOAD_QUEUE.task_done()
+			release_download_task(task)
+			task = None
 
 		except Exception as fatal_worker_err:
+			if task is not None:
+				DOWNLOAD_QUEUE.task_done()
+				release_download_task(task)
 			log_message(f"[Queue Engine] Critical error encountered inside thread management core: {fatal_worker_err}")
 			time.sleep(5)
 
@@ -957,6 +1018,8 @@ def run_downloader_cycle():
 					if not ep_numbers:
 						ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
 					if not ep_numbers:
+						ep_numbers = [n for n in re.findall(r'(?<![a-z0-9])(?:episode|ep|e)[-_.\s]*(\d+)(?!\d)', url_lower) if int(n) <= 150]
+					if not ep_numbers:
 						ep_numbers = [n for n in re.findall(r'\b\d+\b', clean_text) if 1 <= int(n) <= 150]
 
 					if not ep_numbers:
@@ -1025,8 +1088,6 @@ def run_downloader_cycle():
 								log_message(f"[{s_id}] Abort flag active. Dropping resolved Ep {ep_num} instead of queuing.")
 								break
 
-							log_message(f"[{s_id}] True binary stream path resolved! Dispatching to background queue...")
-
 							series_title = live_series_data.get('name', s_id)
 							sanitized_title = re.sub(r'[^a-zA-Z0-9\s.-]', '', series_title).strip()
 
@@ -1042,14 +1103,18 @@ def run_downloader_cycle():
 							filename = f"{sanitized_title} - S{season_num}E{ep_num.zfill(2)}.mkv"
 							full_target_file_path = os.path.join(target_dir, filename)
 
-							DOWNLOAD_QUEUE.put({
+							download_task = {
 								"series_id": s_id,
 								"episode": ep_num,
 								"url": final_download_url,
 								"path": full_target_file_path,
 								"series_name": series_title,
 								"media_type": "movie" if is_movie else "series"
-							})
+							}
+							if enqueue_download_task(download_task):
+								log_message(f"[{s_id}] True binary stream path resolved! Dispatching to background queue...")
+							else:
+								log_message(f"[{s_id}] Skipping Ep {ep_num}: already queued or downloading.")
 						else:
 							log_message(f"[{s_id}] Failed to automatically extract true video tokens for Ep {ep_num}.")
 
@@ -1326,6 +1391,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			with DOWNLOAD_QUEUE.mutex:
 				queued_items = [
 					{
+						"series_id": item.get("series_id", ""),
 						"series_name": item.get("series_name", item.get("series_id", "Unknown")),
 						"episode": item.get("episode", "?")
 					}
@@ -1339,7 +1405,8 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.end_headers()
 			self.wfile.write(json.dumps({
 				"active": active_items,
-				"queued": queued_items
+				"queued": queued_items,
+				"searching": SYNC_LOCK.locked()
 			}).encode('utf-8'))
 			return
 		else:
@@ -1647,13 +1714,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			return
 		#======================================================================
 		elif self.path.rstrip('/') == '/api/queue/clear':
-			cleared_count = 0
-			with DOWNLOAD_QUEUE.mutex:
-				cleared_count = len(DOWNLOAD_QUEUE.queue)
-				DOWNLOAD_QUEUE.queue.clear()
-				DOWNLOAD_QUEUE.unfinished_tasks = max(0, DOWNLOAD_QUEUE.unfinished_tasks - cleared_count)
-				if DOWNLOAD_QUEUE.unfinished_tasks == 0:
-					DOWNLOAD_QUEUE.all_tasks_done.notify_all()
+			cleared_count = clear_pending_download_tasks()
 
 			log_message(f"[Queue Engine] User cleared {cleared_count} pending item(s) from the download queue.")
 
@@ -1663,17 +1724,48 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.wfile.write(json.dumps({"status": "success", "cleared": cleared_count}).encode('utf-8'))
 			return
 		#======================================================================
+		elif self.path.rstrip('/') == '/api/queue/remove':
+			content_length = int(self.headers.get('Content-Length', 0))
+			try:
+				data = json.loads(self.rfile.read(content_length).decode('utf-8')) if content_length > 0 else {}
+			except (UnicodeDecodeError, json.JSONDecodeError):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Invalid JSON request body."}).encode('utf-8'))
+				return
+
+			if not isinstance(data, dict):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Expected a JSON object."}).encode('utf-8'))
+				return
+
+			series_id = str(data.get("series_id", "")).strip()
+			episode = str(data.get("episode", "")).strip()
+			if not series_id or not episode:
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Series and episode are required."}).encode('utf-8'))
+				return
+
+			removed_count = remove_queued_download_task(series_id, episode)
+			if removed_count:
+				log_message(f"[Queue Engine] User removed {series_id} Episode {episode} from the pending queue.")
+
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"status": "success", "removed": removed_count > 0}).encode('utf-8'))
+			return
+		#======================================================================
 		elif self.path.rstrip('/') == '/api/queue/abort':
 			global ABORT_SYNC_FLAG
 			ABORT_SYNC_FLAG = True
 
-			cleared_count = 0
-			with DOWNLOAD_QUEUE.mutex:
-				cleared_count = len(DOWNLOAD_QUEUE.queue)
-				DOWNLOAD_QUEUE.queue.clear()
-				DOWNLOAD_QUEUE.unfinished_tasks = max(0, DOWNLOAD_QUEUE.unfinished_tasks - cleared_count)
-				if DOWNLOAD_QUEUE.unfinished_tasks == 0:
-					DOWNLOAD_QUEUE.all_tasks_done.notify_all()
+			cleared_count = clear_pending_download_tasks()
 
 			killed_active = False
 			with progress_lock:
