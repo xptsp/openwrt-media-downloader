@@ -277,6 +277,68 @@ tr:hover {
     display: block;
 }
 
+.series-poster-preview {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.series-poster-preview img {
+    width: 90px;
+    max-height: 135px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+}
+
+#seriesPosterPreviewImage[role="button"] {
+    cursor: zoom-in;
+}
+
+.poster-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.poster-lightbox[hidden] {
+    display: none;
+}
+
+.poster-lightbox img {
+    max-width: 100%;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.poster-lightbox-close {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    font-size: 2rem;
+    line-height: 1;
+}
+
+body.poster-lightbox-open {
+    overflow: hidden;
+}
+
 .series-card-details {
     display: flex;
     flex-direction: column;
@@ -810,6 +872,46 @@ button {
     box-shadow: 0 10px 25px rgba(0,0,0,0.15);
 }
 
+#addSeriesModal .modal-card {
+    max-width: 500px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+}
+
+#addSeriesModal .modal-card.has-poster {
+    max-width: 640px;
+}
+
+#seriesForm .series-modal-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 20px;
+}
+
+#seriesForm .series-modal-columns.has-poster {
+    grid-template-columns: minmax(0, 1fr) 204px;
+}
+
+#seriesForm .series-modal-details {
+    min-width: 0;
+}
+
+#seriesForm .series-modal-details input {
+    min-width: 0;
+}
+
+#seriesForm .series-modal-poster .series-poster-preview {
+    min-height: 270px;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+#seriesForm .series-modal-poster .series-poster-preview img {
+    width: 100%;
+    max-height: 306px;
+}
+
 .modal-card h3 {
     margin-bottom: 20px;
     color: #343a40;
@@ -975,6 +1077,62 @@ body.dark-mode .toast-error {
         border-radius: 0 !important;
         box-shadow: none !important;
         padding: 16px 12px !important;
+    }
+
+    .app-topbar {
+        position: sticky;
+        top: env(safe-area-inset-top, 0px);
+        z-index: 200;
+        margin: -16px -12px 0;
+        padding: 16px 12px 0;
+        background: var(--bg-container);
+    }
+
+    #seriesForm .series-modal-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #seriesForm .series-modal-columns.has-poster {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #seriesForm .series-modal-poster .series-poster-preview {
+        min-height: 36px;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    #seriesForm .series-modal-poster .series-poster-preview img {
+        width: 90px;
+        max-height: 135px;
+    }
+
+    #series-tab {
+        padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    #seriesGrid.series-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    #seriesGrid .series-card-details {
+        gap: 6px;
+        padding: 8px 6px;
+    }
+
+    #seriesGrid .series-card-actions {
+        width: 100%;
+        gap: 4px;
+    }
+
+    #seriesGrid .series-card-actions .action-btn {
+        flex: 1 1 0;
+        min-width: 0;
+        margin: 0 !important;
+        padding: 5px 2px !important;
+        font-size: 0.7rem !important;
+        white-space: nowrap;
     }
 
     h1 {
@@ -1531,6 +1689,16 @@ body.dark-mode .auth-credential-input {
 body.dark-mode .logout-btn {
     color: var(--danger-red);
     font-weight: bold;
+}
+
+@media screen and (max-width: 380px) {
+    #seriesGrid .series-card-actions {
+        flex-direction: column;
+    }
+
+    #seriesGrid .series-card-actions .action-btn {
+        width: 100% !important;
+    }
 }
 
 /* 3. Browser Autofill Yellow/White Background Override */

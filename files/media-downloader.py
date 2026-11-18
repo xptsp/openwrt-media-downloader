@@ -6,6 +6,7 @@ import json
 import re
 import hashlib
 import tempfile
+import urllib.error
 import urllib.request
 import urllib.parse
 from html import unescape
@@ -899,6 +900,42 @@ def persist_series_poster(series_id, series_url, poster_url, cache_filename):
 	if changed:
 		write_uci_config(live_config)
 
+def is_allowed_source_url(url, allowed_domains):
+	try:
+		parsed_url = urllib.parse.urlparse(url)
+		hostname = (parsed_url.hostname or "").lower().rstrip(".")
+		port = parsed_url.port
+	except ValueError:
+		return False
+
+	if parsed_url.scheme not in ("http", "https") or not hostname or parsed_url.username or parsed_url.password:
+		return False
+	if port is not None and port != (80 if parsed_url.scheme == "http" else 443):
+		return False
+
+	hostname = re.sub(r'^www\.', '', hostname)
+	return bool(allowed_domains) and any(
+		hostname == domain or hostname.endswith("." + domain)
+		for domain in allowed_domains
+	)
+
+class AllowedSourceRedirectHandler(urllib.request.HTTPRedirectHandler):
+	def __init__(self, allowed_domains):
+		super().__init__()
+		self.allowed_domains = allowed_domains
+
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		redirect_url = urllib.parse.urljoin(req.full_url, newurl)
+		if not is_allowed_source_url(redirect_url, self.allowed_domains):
+			raise urllib.error.HTTPError(
+				req.full_url,
+				code,
+				"Redirect to a non-allowed source domain was blocked.",
+				headers,
+				fp
+			)
+		return super().redirect_request(req, fp, code, msg, headers, newurl)
+
 def run_downloader_cycle():
 	if not SYNC_LOCK.acquire(blocking=False):
 		log_message("[Sync Cycle] Sync cycle already in progress. Skipping duplicate trigger.")
@@ -1444,6 +1481,83 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		elif not self.is_authenticated():
 			self.send_response(401)
 			self.end_headers()
+			return
+		#======================================================================
+		elif self.path.rstrip('/') == '/api/series/poster-preview':
+			content_length = int(self.headers.get('Content-Length', 0))
+			try:
+				data = json.loads(self.rfile.read(content_length).decode('utf-8')) if content_length > 0 else {}
+			except (UnicodeDecodeError, json.JSONDecodeError):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Invalid JSON request body."}).encode('utf-8'))
+				return
+
+			if not isinstance(data, dict):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Expected a JSON object."}).encode('utf-8'))
+				return
+
+			source_url = str(data.get("url", "")).strip()
+			config = read_uci_config()
+			allowed_domains = [
+				re.sub(r'^www\.', '', domain.strip().lower().rstrip('.'))
+				for domain in config["global"].get("allowed_domains", "thenkiri.com,dramakey.com").split(",")
+				if domain.strip()
+			]
+			if not is_allowed_source_url(source_url, allowed_domains):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "error",
+					"message": "Poster previews are limited to HTTP(S) pages on allowed source domains."
+				}).encode('utf-8'))
+				return
+
+			headers = {
+				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+				'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				'Accept-Language': 'en-US,en;q=0.5'
+			}
+			opener = urllib.request.build_opener(AllowedSourceRedirectHandler(allowed_domains))
+			try:
+				request = urllib.request.Request(source_url, headers=headers)
+				with opener.open(request, timeout=10) as response:
+					page_url = response.geturl()
+					html = response.read(2 * 1024 * 1024).decode('utf-8', errors='ignore')
+				poster_url = extract_series_poster(html, page_url)
+			except (urllib.error.URLError, TimeoutError, OSError) as preview_err:
+				log_message(f"[Poster Preview] Failed retrieving {source_url}: {preview_err}")
+				self.send_response(502)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "error",
+					"message": "Could not retrieve the source page for its poster preview."
+				}).encode('utf-8'))
+				return
+
+			if not poster_url:
+				self.send_response(404)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({
+					"status": "not_found",
+					"message": "No poster image was found on the source page."
+				}).encode('utf-8'))
+				return
+
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({
+				"status": "success",
+				"poster_url": poster_url
+			}).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path == '/api/logs/clear':

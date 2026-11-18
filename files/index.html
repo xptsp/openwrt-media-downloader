@@ -23,23 +23,25 @@
 		})();
 	</script>
 	<div class="container">
-		<h1 class="app-header">
-			<img src="/app-icon.png" width="32" height="32">
-			<span id="mainTitle">Media Downloader</span>
-			<button type="button" id="themeToggleBtn" class="secondary-btn theme-toggle-btn" onclick="cycleThemeMode()" title="Theme: Auto / Light / Dark">🌓 Auto</button>
-		</h1>
+		<div class="app-topbar">
+			<h1 class="app-header">
+				<img src="/app-icon.png" width="32" height="32">
+				<span id="mainTitle">Media Downloader</span>
+				<button type="button" id="themeToggleBtn" class="secondary-btn theme-toggle-btn" onclick="cycleThemeMode()" title="Theme: Auto / Light / Dark">🌓 Auto</button>
+			</h1>
 
-		<!-- Unified Hyperlink Navigation System Bar -->
-		<div class="tab-nav">
-			<div class="tab-nav-links">
-				<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
-				<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
-				<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
-				<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
-				<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
-				<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
+			<!-- Unified Hyperlink Navigation System Bar -->
+			<div class="tab-nav">
+				<div class="tab-nav-links">
+					<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
+					<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
+					<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
+					<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
+					<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
+					<a href="/settings" class="tab-btn" onclick="event.preventDefault(); switchTab('settings-tab')">⚙️ Settings</a>
+				</div>
+				<button class="tab-btn logout-btn" onclick="triggerSessionLogout()">🚪 Logout</button>
 			</div>
-			<button class="tab-btn logout-btn" onclick="triggerSessionLogout()">🚪 Logout</button>
 		</div>
 
 		<!-- TAB 1: Series Poster Gallery -->
@@ -223,39 +225,55 @@
 		<div class="modal-card">
 			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
 			<form id="seriesForm">
-				<div class="form-group">
-					<label for="mediaType">Media Type</label>
-					<select id="mediaType">
-						<option value="series">📺 TV Series</option>
-						<option value="movie">🎬 Movie</option>
-					</select>
-				</div>
-				<div class="form-group">
-					<label for="name">Series Name</label>
-					<div class="input-button-row">
-						<input type="text" id="name" placeholder="e.g., Merry Berry Love" required>
-						<button type="button" id="seriesSearchBtn" class="secondary-btn no-wrap" onclick="searchSeriesUrl()">🔍 Search</button>
+				<div id="seriesModalColumns" class="series-modal-columns">
+					<div class="series-modal-details">
+						<div class="form-group">
+							<label for="mediaType">Media Type</label>
+							<select id="mediaType">
+								<option value="series">📺 TV Series</option>
+								<option value="movie">🎬 Movie</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="name">Series Name</label>
+							<div class="input-button-row">
+								<input type="text" id="name" placeholder="e.g., Merry Berry Love" required>
+								<button type="button" id="seriesSearchBtn" class="secondary-btn no-wrap" onclick="searchSeriesUrl()">🔍 Search</button>
+							</div>
+						</div>
+						<div id="seriesSearchResults" class="search-results series-search-results"></div>
+						<div class="form-group">
+							<label for="url">Source URL:</label>
+							<div class="input-button-row">
+								<input type="text" id="url" required placeholder="https://thenkiri.com...">
+								<button type="button" id="seriesGoBtn" class="secondary-btn no-wrap" title="Open the source URL in a new tab">Go</button>
+							</div>
+						</div>
+						<div class="form-group">
+							<label>Destination Path (Auto-generates):</label>
+							<input type="text" id="path" required placeholder="Will auto-fill based on name...">
+						</div>
+						<div id="modalEpisodesWrapper" class="form-group modal-episodes-wrapper">
+							<label class="modal-section-label">Managed Downloaded Episodes:</label>
+							<div id="modalEpisodesChecklist" class="modal-episodes-checklist">
+								<!-- Dynamic checkboxes generate here -->
+							</div>
+							<small class="modal-help-text">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
+						</div>
+						<div id="modalRecheckWrapper" class="form-group modal-recheck-wrapper">
+							<label for="editSeriesRecheck" class="modal-recheck-label">🔄 Force Recheck Status (Ongoing)</label>
+							<input type="checkbox" id="editSeriesRecheck" class="modal-recheck-checkbox">
+						</div>
 					</div>
-				</div>
-				<div id="seriesSearchResults" class="search-results series-search-results"></div>
-				<div class="form-group">
-					<label>Source URL:</label>
-					<input type="text" id="url" required placeholder="https://thenkiri.com...">
-				</div>
-				<div class="form-group">
-					<label>Destination Path (Auto-generates):</label>
-					<input type="text" id="path" required placeholder="Will auto-fill based on name...">
-				</div>
-				<div id="modalEpisodesWrapper" class="form-group modal-episodes-wrapper">
-					<label class="modal-section-label">Managed Downloaded Episodes:</label>
-					<div id="modalEpisodesChecklist" class="modal-episodes-checklist">
-						<!-- Dynamic checkboxes generate here -->
+					<div id="seriesModalPosterColumn" class="series-modal-poster" hidden>
+						<div class="form-group">
+							<label>Poster Preview:</label>
+							<div class="series-poster-preview">
+								<img id="seriesPosterPreviewImage" alt="" role="button" tabindex="0" aria-label="View larger poster preview" hidden>
+								<span id="seriesPosterPreviewMessage" hidden></span>
+							</div>
+						</div>
 					</div>
-					<small class="modal-help-text">⚠️ Unchecking an episode deletes its record, forcing the next sync cycle to replace it.</small>
-				</div>
-				<div id="modalRecheckWrapper" class="form-group modal-recheck-wrapper">
-					<label for="editSeriesRecheck" class="modal-recheck-label">🔄 Force Recheck Status (Ongoing)</label>
-					<input type="checkbox" id="editSeriesRecheck" class="modal-recheck-checkbox">
 				</div>
 				<div class="modal-buttons">
 					<button type="button" class="secondary-btn" onclick="closeAddSeriesModal()">Cancel</button>
@@ -263,6 +281,11 @@
 				</div>
 			</form>
 		</div>
+	</div>
+
+	<div id="posterLightbox" class="poster-lightbox" role="dialog" aria-modal="true" aria-label="Poster preview" hidden>
+		<button type="button" id="posterLightboxClose" class="poster-lightbox-close" aria-label="Close poster preview">×</button>
+		<img id="posterLightboxImage" alt="">
 	</div>
 
 	<!-- MODAL 2: Uniform interactive confirmations framework window container -->
@@ -1063,6 +1086,158 @@
 			}
 		};
 
+		let posterPreviewTimer = null;
+		let posterPreviewRequestId = 0;
+
+		const setSeriesPosterPreview = (posterUrl, message = 'Poster preview loads automatically after entering a source URL.', altText = '') => {
+			const image = document.getElementById('seriesPosterPreviewImage');
+			const messageElement = document.getElementById('seriesPosterPreviewMessage');
+			const posterColumn = document.getElementById('seriesModalPosterColumn');
+			const columns = document.getElementById('seriesModalColumns');
+			const modalCard = document.querySelector('#addSeriesModal .modal-card');
+			const hidePosterColumn = () => {
+				posterColumn.hidden = true;
+				columns.classList.remove('has-poster');
+				modalCard.classList.remove('has-poster');
+			};
+			image.onload = null;
+			image.onerror = null;
+			if (!posterUrl) {
+				hidePosterColumn();
+				image.hidden = true;
+				image.removeAttribute('src');
+				messageElement.hidden = true;
+				messageElement.textContent = message;
+				return;
+			}
+
+			image.alt = altText;
+			const showPosterColumn = () => {
+				if (image.getAttribute('src') !== posterUrl) return;
+				image.hidden = false;
+				messageElement.hidden = true;
+				posterColumn.hidden = false;
+				columns.classList.add('has-poster');
+				modalCard.classList.add('has-poster');
+			};
+			image.onload = showPosterColumn;
+			image.onerror = () => {
+				if (image.getAttribute('src') !== posterUrl) return;
+				hidePosterColumn();
+				image.hidden = true;
+				messageElement.hidden = true;
+				showToast('The poster image could not be loaded.', false);
+			};
+			image.hidden = true;
+			image.src = posterUrl;
+			if (image.complete && image.naturalWidth > 0) showPosterColumn();
+		};
+
+		let posterPreviewReturnFocus = null;
+		const openPosterLightbox = () => {
+			const previewImage = document.getElementById('seriesPosterPreviewImage');
+			if (previewImage.hidden || !previewImage.src) return;
+
+			const lightbox = document.getElementById('posterLightbox');
+			const lightboxImage = document.getElementById('posterLightboxImage');
+			posterPreviewReturnFocus = document.activeElement;
+			history.pushState({ ...(history.state || {}), posterLightboxOpen: true }, '', window.location.href);
+			lightboxImage.src = previewImage.currentSrc || previewImage.src;
+			lightboxImage.alt = previewImage.alt;
+			lightbox.hidden = false;
+			document.body.classList.add('poster-lightbox-open');
+			document.getElementById('posterLightboxClose').focus();
+		};
+
+		const closePosterLightbox = (fromHistory = false) => {
+			const lightbox = document.getElementById('posterLightbox');
+			if (lightbox.hidden) return;
+			const shouldRestoreHistory = !fromHistory && history.state?.posterLightboxOpen;
+			lightbox.hidden = true;
+			document.getElementById('posterLightboxImage').removeAttribute('src');
+			document.body.classList.remove('poster-lightbox-open');
+			if (posterPreviewReturnFocus && posterPreviewReturnFocus.isConnected) {
+				posterPreviewReturnFocus.focus();
+			}
+			posterPreviewReturnFocus = null;
+			if (shouldRestoreHistory) history.back();
+		};
+
+		const posterPreviewImage = document.getElementById('seriesPosterPreviewImage');
+		posterPreviewImage.addEventListener('click', openPosterLightbox);
+		posterPreviewImage.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				openPosterLightbox();
+			}
+		});
+		document.getElementById('posterLightboxClose').addEventListener('click', () => closePosterLightbox());
+		document.getElementById('posterLightbox').addEventListener('click', event => {
+			if (event.target === event.currentTarget) closePosterLightbox();
+		});
+		document.addEventListener('keydown', event => {
+			if (event.key === 'Escape' && !document.getElementById('posterLightbox').hidden) {
+				event.preventDefault();
+				event.stopPropagation();
+				closePosterLightbox();
+			}
+		});
+
+		const previewSeriesPoster = async (sourceUrl, requestId) => {
+			const urlInput = document.getElementById('url');
+			if (requestId !== posterPreviewRequestId || urlInput.value.trim() !== sourceUrl) return;
+			if (!isUrlAllowed(sourceUrl)) {
+				setSeriesPosterPreview('', 'Enter a source URL from an allowed domain.');
+				return;
+			}
+
+			setSeriesPosterPreview('', 'Searching the source page for a poster...');
+			try {
+				const response = await fetch('/api/series/poster-preview', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ url: sourceUrl })
+				});
+				const data = await response.json();
+				if (requestId !== posterPreviewRequestId || urlInput.value.trim() !== sourceUrl) return;
+				if (!response.ok) {
+					throw new Error(data.message || 'Could not load a poster preview.');
+				}
+				if (data.poster_url) {
+					setSeriesPosterPreview(data.poster_url, '', document.getElementById('name').value.trim());
+				} else {
+					setSeriesPosterPreview('', data.message || 'No poster was found on the source page.');
+				}
+			} catch (error) {
+				if (requestId === posterPreviewRequestId && urlInput.value.trim() === sourceUrl) {
+					setSeriesPosterPreview('', error.message || 'Could not load a poster preview.');
+				}
+			}
+		};
+
+		const scheduleSeriesPosterPreview = () => {
+			if (posterPreviewTimer) clearTimeout(posterPreviewTimer);
+			posterPreviewRequestId += 1;
+			const sourceUrl = document.getElementById('url').value.trim();
+			if (!sourceUrl) {
+				setSeriesPosterPreview('');
+				return;
+			}
+			if (!isUrlAllowed(sourceUrl)) {
+				setSeriesPosterPreview('', 'Enter a source URL from an allowed domain.');
+				return;
+			}
+
+			setSeriesPosterPreview('', 'Poster preview will load shortly...');
+			const requestId = posterPreviewRequestId;
+			posterPreviewTimer = setTimeout(() => {
+				posterPreviewTimer = null;
+				previewSeriesPoster(sourceUrl, requestId);
+			}, 500);
+		};
+
+		document.getElementById('url').addEventListener('input', scheduleSeriesPosterPreview);
+
 		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
 			const name = nameInput.value.trim();
@@ -1172,11 +1347,28 @@
 			}
 		};
 
+		document.getElementById('seriesGoBtn').addEventListener('click', () => {
+			const sourceUrl = document.getElementById('url').value.trim();
+			let parsedUrl;
+			try {
+				parsedUrl = new URL(sourceUrl);
+			} catch (error) {
+				showToast('Enter a valid allowed source URL first.', false);
+				return;
+			}
+			if (!['http:', 'https:'].includes(parsedUrl.protocol) || !isUrlAllowed(sourceUrl)) {
+				showToast('Enter a valid allowed source URL first.', false);
+				return;
+			}
+			window.open(parsedUrl.href, '_blank', 'noopener,noreferrer');
+		});
+
 		const openAddSeriesModal = () => {
 			editModeId = null;
 			clearSeriesSearchResults();
 			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
 			document.getElementById('seriesForm').reset();
+			scheduleSeriesPosterPreview();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').classList.remove('is-visible');
 			updateDestinationPath();
@@ -1197,6 +1389,12 @@
 			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${sData.name || id}`;
 			document.getElementById('name').value = sData.name || '';
 			document.getElementById('url').value = sData.url || '';
+			if (sData.poster) {
+				setSeriesPosterPreview(sData.poster, '', sData.name || id);
+			} else {
+				setSeriesPosterPreview('', 'Poster preview will load shortly.');
+				scheduleSeriesPosterPreview();
+			}
 			document.getElementById('path').value = sData.path || '';
 			if (mediaTypeSelect) {
 				mediaTypeSelect.value = sData.type || 'series';
@@ -1241,9 +1439,11 @@
 		};
 
 		const closeAddSeriesModal = () => {
+			closePosterLightbox();
 			editModeId = null;
 			clearSeriesSearchResults();
 			document.getElementById('seriesForm').reset();
+			scheduleSeriesPosterPreview();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
 			document.getElementById('modalEpisodesWrapper').classList.remove('is-visible');
 
@@ -1276,6 +1476,7 @@
 
 		const selectSearchResult = (title, url) => {
 			document.getElementById('url').value = url;
+			scheduleSeriesPosterPreview();
 
 			// Clean up site tags/season suffixes from the selected result title
 			const seasonMatch = title.match(/\b(?:S|Season\s*)0?([2-9]|[1-9]\d)\b/i);
@@ -1668,6 +1869,12 @@
 		window.addEventListener('popstate', (e) => {
 			const confirmModal = document.getElementById('customModal');
 			const seriesModal = document.getElementById('addSeriesModal');
+			const posterLightbox = document.getElementById('posterLightbox');
+
+			if (posterLightbox && !posterLightbox.hidden) {
+				closePosterLightbox(true);
+				return;
+			}
 			
 			// 🛡️ Mobile Back Key hit while confirmation box was visible
 			if (confirmModal && confirmModal.classList.contains('active')) {
@@ -1676,6 +1883,7 @@
 			}
 			
 			if (seriesModal && seriesModal.classList.contains('active')) {
+				if (e.state && e.state.modalOpen) return;
 				editModeId = null;
 				document.getElementById('seriesForm').reset();
 				document.getElementById('modalEpisodesChecklist').innerHTML = '';
