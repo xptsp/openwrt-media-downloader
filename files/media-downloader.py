@@ -900,6 +900,21 @@ def persist_series_poster(series_id, series_url, poster_url, cache_filename):
 	if changed:
 		write_uci_config(live_config)
 
+def normalize_allowed_domain(domain):
+	domain = str(domain).strip().lower()
+	if not domain:
+		return ""
+	if "://" not in domain:
+		domain = "//" + domain
+	try:
+		parsed_domain = urllib.parse.urlsplit(domain)
+		if parsed_domain.username or parsed_domain.password:
+			return ""
+		hostname = (parsed_domain.hostname or "").rstrip(".")
+	except ValueError:
+		return ""
+	return re.sub(r'^www\.', '', hostname)
+
 def is_allowed_source_url(url, allowed_domains):
 	try:
 		parsed_url = urllib.parse.urlparse(url)
@@ -913,10 +928,11 @@ def is_allowed_source_url(url, allowed_domains):
 	if port is not None and port != (80 if parsed_url.scheme == "http" else 443):
 		return False
 
-	hostname = re.sub(r'^www\.', '', hostname)
+	hostname = normalize_allowed_domain(hostname)
+	allowed_hosts = [normalize_allowed_domain(domain) for domain in allowed_domains]
 	return bool(allowed_domains) and any(
 		hostname == domain or hostname.endswith("." + domain)
-		for domain in allowed_domains
+		for domain in allowed_hosts if domain
 	)
 
 class AllowedSourceRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -1504,9 +1520,10 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			source_url = str(data.get("url", "")).strip()
 			config = read_uci_config()
 			allowed_domains = [
-				re.sub(r'^www\.', '', domain.strip().lower().rstrip('.'))
-				for domain in config["global"].get("allowed_domains", "thenkiri.com,dramakey.com").split(",")
-				if domain.strip()
+				normalized for normalized in (
+					normalize_allowed_domain(domain)
+					for domain in config["global"].get("allowed_domains", "thenkiri.com,dramakey.com").split(",")
+				) if normalized
 			]
 			if not is_allowed_source_url(source_url, allowed_domains):
 				self.send_response(400)
@@ -1641,7 +1658,11 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				if "allowed_domains" in data:
 					# Normalize comma-separated domains (strip http://, www., and trailing slashes)
 					raw_domains = [d.strip().lower() for d in data["allowed_domains"].split(",") if d.strip()]
-					clean_domains = [re.sub(r'^https?://(www\.)?|/.*$', '', d) for d in raw_domains]
+					clean_domains = [
+						normalized for normalized in (
+							normalize_allowed_domain(domain) for domain in raw_domains
+						) if normalized
+					]
 					config["global"]["allowed_domains"] = ",".join(clean_domains)
 				if "ntfy_topic" in data:
 					config["global"]["ntfy_topic"] = data["ntfy_topic"].strip()
@@ -1748,10 +1769,9 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			allowed_raw = config["global"].get("allowed_domains", "thenkiri.com,dramakey.com")
 			allowed_list = [d.strip().lower() for d in allowed_raw.split(",") if d.strip()]
 
-			parsed_host = urllib.parse.urlparse(series_url).netloc.lower()
-			parsed_host = re.sub(r'^www\.', '', parsed_host)
+			parsed_host = normalize_allowed_domain(series_url)
 
-			if allowed_list and not any(parsed_host == d or parsed_host.endswith("." + d) for d in allowed_list):
+			if allowed_list and not is_allowed_source_url(series_url, allowed_list):
 				self.send_response(400)
 				self.send_header('Content-Type', 'application/json')
 				self.end_headers()

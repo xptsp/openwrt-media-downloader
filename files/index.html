@@ -1348,10 +1348,25 @@
 		const isUrlAllowed = (urlStr) => {
 			if (!urlStr) return false;
 			try {
-				const host = new URL(urlStr).hostname.toLowerCase().replace(/^www\./, '');
-				const rawList = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
-				const allowed = rawList.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
-				if (allowed.length === 0) return true;
+				const sourceUrl = new URL(urlStr);
+				if (!['http:', 'https:'].includes(sourceUrl.protocol) || sourceUrl.username || sourceUrl.password || sourceUrl.port) {
+					return false;
+				}
+				const normalizeDomain = domain => {
+					try {
+						const value = domain.trim().toLowerCase();
+						const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+						return new URL(candidate).hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+					} catch (error) {
+						return '';
+					}
+				};
+				const host = normalizeDomain(sourceUrl.hostname);
+				const rawList = (currentDashboardData && currentDashboardData.global && currentDashboardData.global.allowed_domains) || 'thenkiri.com,dramakey.com';
+				const configuredDomains = rawList.split(',').map(domain => domain.trim()).filter(Boolean);
+				const allowed = configuredDomains.map(normalizeDomain).filter(Boolean);
+				if (configuredDomains.length === 0) return true;
+				if (allowed.length === 0) return false;
 				return allowed.some(d => host === d || host.endsWith('.' + d));
 			} catch (e) {
 				return false;

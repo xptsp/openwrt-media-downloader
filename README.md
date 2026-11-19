@@ -4,17 +4,6 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 
 ---
 
-## Screenshots
-
-![screenshot_0.webp](screenshots/screenshot_0.webp)
-![screenshot_1.webp](screenshots/screenshot_1.webp)
-![screenshot_2.webp](screenshots/screenshot_2.webp)
-![screenshot_3.webp](screenshots/screenshot_3.webp)
-![screenshot_4.webp](screenshots/screenshot_4.webp)
-![screenshot_5.webp](screenshots/screenshot_5.webp)
-
----
-
 ## ✨ Features
 
 * **🎛️ Low Memory Footprint:** Built entirely using Python's native standard libraries (`http.server`, `urllib`, and `json`). Does not require heavy third-party framework dependencies like FastAPI, Flask, or BeautifulSoup, preserving host RAM.
