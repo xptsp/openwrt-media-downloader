@@ -1761,13 +1761,32 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				}).encode('utf-8'))
 				return
 
+			poster_url = str(data.get("poster_url") or "").strip()
+			poster_cached = None
+			if poster_url:
+				if is_allowed_source_url(poster_url, allowed_list):
+					config["series"][s_id]["poster"] = poster_url
+					cache_headers = {
+						'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+					}
+					cache_filename = cache_series_poster(poster_url, get_cache_directory(config), s_id, cache_headers)
+					poster_cached = bool(cache_filename)
+					if cache_filename:
+						config["series"][s_id]["poster_cache_file"] = cache_filename
+				else:
+					log_message(f"[Poster Cache] Refusing unallowed poster URL for '{s_id}'.")
+					poster_cached = False
+
 			write_uci_config(config)
 			log_message(f"Saved tracking profile changes for section: {series_friendly_name}")
 
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
-			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+			self.wfile.write(json.dumps({
+				"status": "success",
+				"poster_cached": poster_cached
+			}).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path.rstrip('/') == '/api/scan-storage':

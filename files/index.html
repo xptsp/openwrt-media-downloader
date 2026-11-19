@@ -1102,6 +1102,8 @@
 			};
 			image.onload = null;
 			image.onerror = null;
+			delete image.dataset.posterUrl;
+			if (/^https?:\/\//i.test(posterUrl)) image.dataset.posterUrl = posterUrl;
 			if (!posterUrl) {
 				hidePosterColumn();
 				image.hidden = true;
@@ -1114,6 +1116,7 @@
 			image.alt = altText;
 			const showPosterColumn = () => {
 				if (image.getAttribute('src') !== posterUrl) return;
+				image.dataset.posterUrl = posterUrl;
 				image.hidden = false;
 				messageElement.hidden = true;
 				posterColumn.hidden = false;
@@ -1267,6 +1270,8 @@
 			}
 
 			const selectedMediaType = mediaTypeSelect ? mediaTypeSelect.value : 'series';
+			const previewPosterUrl = document.getElementById('seriesPosterPreviewImage').dataset.posterUrl || '';
+			const posterUrl = /^https?:\/\//i.test(previewPosterUrl) ? previewPosterUrl : '';
 
 			const res = await fetch(`/api/series/${targetId}`, {
 				method: 'POST',
@@ -1277,7 +1282,8 @@
 					path: pathInput.value.trim(),
 					downloaded_episodes: activeEpisodes,
 					status: seriesStatus,
-					type: selectedMediaType
+					type: selectedMediaType,
+					poster_url: posterUrl
 				})
 			});
 
@@ -1287,9 +1293,14 @@
 				return;
 			}
 
+			const saveData = await res.json();
 			const wasEditing = Boolean(editModeId);
 			closeAddSeriesModal();
-			showToast(wasEditing ? 'Media feed updated successfully.' : 'New media feed added successfully.');
+			if (saveData.poster_cached === false) {
+				showToast('Media feed saved, but its poster could not be cached.', false);
+			} else {
+				showToast(wasEditing ? 'Media feed updated successfully.' : 'New media feed added successfully.');
+			}
 			await loadDashboardData();
 		});
 
