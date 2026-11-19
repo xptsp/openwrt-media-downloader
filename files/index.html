@@ -347,6 +347,8 @@
 		let logInterval = null;
 		let queueHadWork = false;
 		let queueCompletionDismissed = false;
+		let queueCompletionWatchInterval = null;
+		let seriesRefreshPending = false;
 		let currentDashboardData = null;
 		let editModeId = null;
 
@@ -497,6 +499,10 @@
 
 			const targetBtn = document.querySelector(`.tab-nav .tab-btn[onclick*='${tabId}']`);
 			if (targetBtn) targetBtn.classList.add('active');
+			if (tabId === 'series-tab' && seriesRefreshPending) {
+				seriesRefreshPending = false;
+				loadDashboardData();
+			}
 
 			// Safe historical address bar context updates without popping page refreshes
 			if (updateUrl && window.location.pathname !== targetUrl) {
@@ -573,6 +579,46 @@
 		};
 
 		// 🔫 BACKEND CRAWLER DISPATCH
+		const watchForQueueCompletion = () => {
+			if (queueCompletionWatchInterval) clearInterval(queueCompletionWatchInterval);
+			let sawWork = false;
+			let polling = false;
+			const startedAt = Date.now();
+
+			const checkCompletion = async () => {
+				if (polling) return;
+				polling = true;
+				try {
+					const response = await fetch('/api/queue');
+					if (!response.ok) return;
+					const data = await response.json();
+					const hasWork = Boolean(data.searching) ||
+						Object.keys(data.active || {}).length > 0 ||
+						(data.queued || []).length > 0;
+					if (hasWork) {
+						sawWork = true;
+						return;
+					}
+					if (sawWork || Date.now() - startedAt >= 5000) {
+						clearInterval(queueCompletionWatchInterval);
+						queueCompletionWatchInterval = null;
+						seriesRefreshPending = true;
+						if (document.getElementById('series-tab').classList.contains('active')) {
+							seriesRefreshPending = false;
+							await loadDashboardData();
+						}
+					}
+				} catch (err) {
+					console.error('Queue completion check failed:', err);
+				} finally {
+					polling = false;
+				}
+			};
+
+			checkCompletion();
+			queueCompletionWatchInterval = setInterval(checkCompletion, 1500);
+		};
+
 		window.triggerSyncUpdates = () => {
 			showToast("Deploying web parsing sequence updates...", true);
 
@@ -585,6 +631,7 @@
 					const data = text ? JSON.parse(text) : { status: "success" };
 					if (data.status === "success" || data.success) {
 						showToast("Automated harvesting cycle executing in background.");
+						watchForQueueCompletion();
 						// 🚀 Switch straight to the Queue tab to monitor active & pending downloads
 						if (typeof switchTab === 'function') {
 							switchTab('queue-tab');
@@ -1241,7 +1288,14 @@
 
 		document.getElementById('url').addEventListener('input', scheduleSeriesPosterPreview);
 
-		document.getElementById('seriesForm').addEventListener('submit', async (e) => {
+		const seriesForm = document.getElementById('seriesForm');
+		seriesForm.addEventListener('keydown', (e) => {
+			if (e.key !== 'Enter' || document.getElementById('url').value.trim()) return;
+			e.preventDefault();
+			document.getElementById('seriesSearchBtn').click();
+		});
+
+		seriesForm.addEventListener('submit', async (e) => {
 			e.preventDefault();
 			const name = nameInput.value.trim();
 			const targetId = editModeId ? editModeId : name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/[\s-]+/g, '-');

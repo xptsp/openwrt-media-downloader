@@ -1,17 +1,24 @@
 #!/bin/bash
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Beginning Copy process..."
+hashcopy() {
+	local HASH="$(grep $1 .hash | cut -d" " -f 1)"
+	if [[ ! -z "${HASH}" ]]; then
+		[[ "$(grep $HASH .hash_new | awk '{print $1}')" == "$HASH" ]] && return
+	fi
+	scp $1 $2
+}
 
-scp ./files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader.py
+touch .hash
+sha256sum files/* > .hash_new
+hashcopy files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader.py
+hashcopy files/index.html root@homelab.lan:/usr/share/media-downloader/index.html
+hashcopy files/wallpaper.webp root@homelab.lan:/usr/share/media-downloader/wallpaper.webp
+hashcopy files/manifest.json root@homelab.lan:/usr/share/media-downloader/manifest.json
+hashcopy files/sw.js root@homelab.lan:/usr/share/media-downloader/sw.js
+hashcopy files/app-icon.png root@homelab.lan:/usr/share/media-downloader/app-icon.png
+hashcopy files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
 
-# Install web layout layer template
-scp ./files/index.html root@homelab.lan:/usr/share/media-downloader/index.html
-scp ./files/wallpaper.webp root@homelab.lan:/usr/share/media-downloader/wallpaper.webp
-scp ./files/manifest.json root@homelab.lan:/usr/share/media-downloader/manifest.json
-scp ./files/sw.js root@homelab.lan:/usr/share/media-downloader/sw.js
-scp ./files/app-icon.png root@homelab.lan:/usr/share/media-downloader/app-icon.png
-scp ./files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
-
-#scp ./files/media-downloader.crontab root@homelab.lan:/etc/crontabs/media-downloader
-scp ./files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
-
-ssh root@homelab.lan service media-downloader restart
+hashcopy files/media-downloader.crontab root@homelab.lan:/etc/crontabs/media-downloader
+hashcopy files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
+ssh root@homelab.lan service media-downloader restart || exit 1
+mv .hash_new .hash

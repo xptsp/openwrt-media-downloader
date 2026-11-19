@@ -9,6 +9,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import urllib.parse
+import http.cookiejar
 from html import unescape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
@@ -407,7 +408,7 @@ def background_download_worker():
 				target_folder = dest_folder
 
 			media_type = task.get("media_type", "series")
-			success = download_url_file(download_url, target_folder, series_name, ep_num, media_type)
+			success = download_url_file(download_url, target_folder, series_name, ep_num, media_type, task.get("download_headers"))
 
 			if success:
 				try:
@@ -453,10 +454,19 @@ def background_download_worker():
 			time.sleep(5)
 
 ##############################################################################################
-def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"):
+def download_url_file(url, dest_folder, series_name, ep_num, media_type="series", download_headers=None):
 	global ACTIVE_CURL_PROC
 	process = None
 	try:
+		# Encode URL path/query characters that curl may otherwise parse as URL syntax.
+		url_parts = urllib.parse.urlsplit(url)
+		url = urllib.parse.urlunsplit((
+			url_parts.scheme,
+			url_parts.netloc,
+			urllib.parse.quote(url_parts.path, safe="/%:@!$&'*+,;=-._~%"),
+			urllib.parse.quote(url_parts.query, safe="=&?/:@!$'*,;%-._~+%"),
+			url_parts.fragment
+		))
 		os.makedirs(dest_folder, exist_ok=True)
 		parsed_url = urllib.parse.urlparse(url)
 		original_filename = os.path.basename(parsed_url.path).lower()
@@ -538,15 +548,24 @@ def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"
 		#======================================================================
 		log_message(f"Spawning live curl process pipe with progress tracking...")
 		curl_cmd = [
-			"curl", "-#", "-L",
+			"curl", "--globoff", "-#", "-L",
 			"-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 			"-H", "Accept: */*",
 			"-H", "Accept-Language: en-US,en;q=0.5",
 			"--connect-timeout", "15",
 			"--retry", "3",
 			"-o", dest_path,
+			"--write-out", "HTTP_STATUS:%{http_code} CONTENT_TYPE:%{content_type} TRANSFERRED:%{size_download}",
 			url
 		]
+		download_args = []
+		for header_name, header_value in (download_headers or {}).items():
+			if header_value:
+				if header_name.lower() == "referer":
+					download_args.extend(["--referer", header_value])
+				elif header_name.lower() == "cookie":
+					download_args.extend(["--cookie", header_value])
+		curl_cmd[-1:-1] = download_args
 
 		# Spawn the process asynchronously so we can capture lines on the fly
 		process = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -557,6 +576,7 @@ def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"
 		# 📊 STEP 4: Bulletproof \r-Aware Progress Scraper
 		#======================================================================
 		buffer = ""
+		stderr_tail = ""
 		while True:
 			# Read small character chunks dynamically from the stream
 			chunk = process.stderr.read(10)
@@ -564,6 +584,7 @@ def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"
 				break # Exit cleanly when curl exits execution
 
 			buffer += chunk
+			stderr_tail = (stderr_tail + chunk)[-1000:]
 
 			# Curl updates lines using carriage returns (\r), so split by \r
 			if '\r' in buffer:
@@ -585,6 +606,7 @@ def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"
 
 		# Block until process execution finishes completely
 		process.wait()
+		curl_summary = process.stdout.read().strip() if process.stdout else ""
 
 		# Wipe download job out of memory allocation dictionary when done
 		with progress_lock:
@@ -596,6 +618,11 @@ def download_url_file(url, dest_folder, series_name, ep_num, media_type="series"
 			return True
 		else:
 			log_message(f"Curl file stream collection failed with return code: {process.returncode}")
+			file_size = os.path.getsize(dest_path) if os.path.exists(dest_path) else 0
+			if curl_summary:
+				log_message(f"Curl response details: {curl_summary}; saved_bytes={file_size}")
+			if stderr_tail.strip():
+				log_message(f"Curl stderr tail: {stderr_tail.strip()[-500:]}")
 			if os.path.exists(dest_path):
 				os.remove(dest_path)
 			return False
@@ -915,6 +942,110 @@ def normalize_allowed_domain(domain):
 		return ""
 	return re.sub(r'^www\.', '', hostname)
 
+def extract_html_forms(html):
+	"""Parse form actions and named fields with the standard library only."""
+	forms = []
+	attr_pattern = r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))'''
+	for form_match in re.finditer(r'<form\b([^>]*)>(.*?)</form\s*>', html, re.IGNORECASE | re.DOTALL):
+		form_attrs = {}
+		for match in re.finditer(attr_pattern, form_match.group(1)):
+			form_attrs[match.group(1).lower()] = unescape(next(v for v in match.groups()[1:] if v is not None))
+		fields = {}
+		for input_match in re.finditer(r'<input\b([^>]*)>', form_match.group(2), re.IGNORECASE | re.DOTALL):
+			attrs = {}
+			for match in re.finditer(attr_pattern, input_match.group(1)):
+				attrs[match.group(1).lower()] = unescape(next((v for v in match.groups()[1:] if v is not None), ""))
+			if attrs.get("name"):
+				fields[attrs["name"]] = attrs.get("value", "")
+		forms.append({"action": form_attrs.get("action", ""), "fields": fields})
+	return forms
+
+def extract_media_url(html):
+	"""Find a direct video URL in a file-host response page."""
+	for candidate in re.findall(r'''https?://[^\s"'<>]+''', unescape(html)):
+		candidate = candidate.replace('\\/', '/')
+		if re.search(r'''\.(?:mkv|mp4|avi)(?:[?#][^\s"'<>]*)?$''', candidate, re.IGNORECASE):
+			return candidate.rstrip('.,);')
+	return None
+
+def find_xfiles_form(forms, expected_op=""):
+	for form in forms:
+		if form["fields"].get("op", "").lower() == expected_op:
+			return form
+	for form in forms:
+		if form["fields"].get("id"):
+			return form
+	return forms[0] if forms else None
+
+def xfiles_countdown_seconds(html):
+	patterns = (
+		r'''(?:countdown|countdown_str)[^0-9]{0,50}(\d{1,2})''',
+		r'''(?:please\s+)?wait[^0-9]{0,30}(\d{1,2})\s*(?:seconds?|secs?)''',
+	)
+	for pattern in patterns:
+		match = re.search(pattern, html, re.IGNORECASE)
+		if match:
+			return min(30, max(1, int(match.group(1))))
+	return 5
+
+def resolve_wetafiles_url(target_url, desktop_headers):
+	"""Submit the two-stage free-download forms used by WetaFiles."""
+	cookie_jar = http.cookiejar.CookieJar()
+	opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+	def resolved_download(url):
+		cookie_request = urllib.request.Request(url)
+		cookie_jar.add_cookie_header(cookie_request)
+		return {
+			"url": url,
+			"referer": target_url,
+			"cookie": cookie_request.get_header("Cookie", "")
+		}
+
+	request = urllib.request.Request(target_url, headers=desktop_headers)
+	with opener.open(request, timeout=30) as response:
+		page_url = response.geturl()
+		page_html = response.read().decode('utf-8', errors='ignore')
+	forms = extract_html_forms(page_html)
+	if not forms:
+		media_url = extract_media_url(page_html)
+		return resolved_download(media_url) if media_url else None
+
+	for stage in range(2):
+		if not forms:
+			media_url = extract_media_url(page_html)
+			return resolved_download(media_url) if media_url else None
+		expected_op = "download1" if stage == 0 else "download2"
+		form = find_xfiles_form(forms, expected_op)
+		fields = form["fields"]
+		if not fields:
+			break
+		fields.pop("method_premium", None)
+		if "method_free" in fields and not fields["method_free"]:
+			fields["method_free"] = "Free Download"
+		action_url = urllib.parse.urljoin(page_url, form["action"] or page_url)
+		post_request = urllib.request.Request(
+			action_url,
+			data=urllib.parse.urlencode(fields).encode('utf-8'),
+			headers={
+				'User-Agent': desktop_headers['User-Agent'],
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'Referer': page_url
+			}
+		)
+		with opener.open(post_request, timeout=30) as response:
+			page_url = response.geturl()
+			page_html = response.read().decode('utf-8', errors='ignore')
+		forms = extract_html_forms(page_html)
+		if stage == 0 and find_xfiles_form(forms, "download2"):
+			wait_seconds = xfiles_countdown_seconds(page_html)
+			log_message(f"[WetaFiles] Waiting {wait_seconds}s for the download link countdown.")
+			time.sleep(wait_seconds)
+			continue
+		media_url = extract_media_url(page_html)
+		if media_url:
+			return resolved_download(media_url)
+	return None
+
 def is_allowed_source_url(url, allowed_domains):
 	try:
 		parsed_url = urllib.parse.urlparse(url)
@@ -1055,16 +1186,18 @@ def run_downloader_cycle():
 					if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/", "#comment"]):
 						continue
 
-					is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
+					is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or "wetafiles.com" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
 					if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
 						continue
 
-					if not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
+					has_episode_marker = re.search(r'ep|episode|s\d+|down', clean_text_lower)
+					has_episode_url_marker = re.search(r's\d+e\d+|(?<![a-z0-9])(?:episode|ep|e)[-_.\s]*\d+', url_lower)
+					if not has_episode_marker and not has_episode_url_marker:
 						continue
 
 					is_movie = (s_data.get("type") == "movie")
 
-					if not is_movie and not re.search(r'ep|episode|s\d+|down', clean_text_lower) and not re.search(r's\d+e\d+', url_lower):
+					if not is_movie and not has_episode_marker and not has_episode_url_marker:
 						continue
 
 					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
@@ -1096,9 +1229,23 @@ def run_downloader_cycle():
 						log_message(f"[{s_id}] Direct download link found for Ep {ep_num}: {target_url}")
 
 						final_download_url = None
+						final_download_headers = {}
+
+						# Resolve WetaFiles' free-download form flow.
+						if "wetafiles.com" in url_lower:
+							try:
+								resolved_download = resolve_wetafiles_url(target_url, desktop_headers)
+								if resolved_download:
+									final_download_url = resolved_download.get("url")
+									final_download_headers = {
+										"referer": resolved_download.get("referer", target_url),
+										"cookie": resolved_download.get("cookie", "")
+									}
+							except Exception as locker_err:
+								log_message(f"[{s_id}] Failed WetaFiles download generation pass: {locker_err}")
 
 						# 🎯 THE DOWNLOADWELLA BYPASS VALVE
-						if "downloadwella.com" in url_lower or "downloawella.com" in url_lower:
+						elif "downloadwella.com" in url_lower or "downloawella.com" in url_lower:
 							try:
 								wella_req = urllib.request.Request(target_url, headers=desktop_headers)
 								with urllib.request.urlopen(wella_req) as wella_res:
@@ -1160,6 +1307,7 @@ def run_downloader_cycle():
 								"series_id": s_id,
 								"episode": ep_num,
 								"url": final_download_url,
+								"download_headers": final_download_headers,
 								"path": full_target_file_path,
 								"series_name": series_title,
 								"media_type": "movie" if is_movie else "series"
