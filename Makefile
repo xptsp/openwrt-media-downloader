@@ -11,13 +11,19 @@ define Package/media-downloader
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Automated Media Downloader Web Control Panel
-  DEPENDS:=+python3-light +python3-urllib +python3-codecs +python3-openssl
+  DEPENDS:=+python3-light +python3-urllib +python3-codecs +python3-openssl +python3-cryptography
   PKGARCH:=all
 endef
 
 define Package/media-downloader/description
   A lightweight background media sync downloader tool and web frontend interface 
   specifically engineered for capturing automated daily drama serial updates.
+endef
+
+define Package/media-downloader/conffiles
+/etc/config/media-downloader
+/usr/libexec/media-downloader/media-downloader.vapid
+/usr/libexec/media-downloader/media-downloader.push
 endef
 
 define Build/Configure
@@ -30,8 +36,8 @@ endef
 
 define Package/media-downloader/install
 	# Install background script engine
-	$(INSTALL_DIR) $(1)/usr/libexec
-	$(INSTALL_BIN) ./files/media-downloader.py $(1)/usr/libexec/media-downloader.py
+	$(INSTALL_DIR) $(1)/usr/libexec/media-downloader
+	$(INSTALL_BIN) ./files/media-downloader.py $(1)/usr/libexec/media-downloader/media-downloader.py
 
 	# Install web layout layer template
 	$(INSTALL_DIR) $(1)/usr/share/media-downloader

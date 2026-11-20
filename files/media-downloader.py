@@ -5,6 +5,8 @@ import sys
 import json
 import re
 import hashlib
+import base64
+import hmac
 import tempfile
 import urllib.error
 import urllib.request
@@ -22,6 +24,8 @@ import queue
 ##############################################################################################
 CONFIG_FILE = "/etc/config/media-downloader"
 HTML_FILE = "/usr/share/media-downloader/index.html"
+PUSH_SUBSCRIPTIONS_FILE = "/usr/libexec/media-downloader/media-downloader.push"
+VAPID_PRIVATE_KEY_FILE = "/usr/libexec/media-downloader/media-downloader.vapid"
 
 # Global memory log buffer to avoid grinding router flash storage
 ACTIVE_DOWNLOADS = {}
@@ -32,6 +36,8 @@ log_lock = threading.Lock()
 
 ACTIVE_SESSIONS = set()
 session_lock = threading.Lock()
+push_subscriptions_lock = threading.Lock()
+vapid_key_lock = threading.Lock()
 
 ##############################################################################################
 # 🌐 GLOBAL BACKGROUND TASK QUEUE MATRIX
@@ -133,6 +139,294 @@ def send_push_notification(title, message, tags="tv,white_check_mark", override_
 		return False
 
 ##############################################################################################
+def base64url_encode(value):
+	return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+##############################################################################################
+def base64url_decode(value):
+	if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+		raise ValueError("Invalid base64url value.")
+	try:
+		return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+	except (ValueError, base64.binascii.Error) as decode_err:
+		raise ValueError("Invalid base64url value.") from decode_err
+
+##############################################################################################
+def get_vapid_private_key():
+	from cryptography.hazmat.primitives.asymmetric import ec
+
+	with vapid_key_lock:
+		if os.path.exists(VAPID_PRIVATE_KEY_FILE):
+			with open(VAPID_PRIVATE_KEY_FILE, "r", encoding="ascii") as key_file:
+				private_value = int.from_bytes(base64url_decode(key_file.read().strip()), "big")
+			return ec.derive_private_key(private_value, ec.SECP256R1())
+
+		private_key = ec.generate_private_key(ec.SECP256R1())
+		private_value = private_key.private_numbers().private_value.to_bytes(32, "big")
+		os.makedirs(os.path.dirname(VAPID_PRIVATE_KEY_FILE), exist_ok=True)
+		fd, temporary_path = tempfile.mkstemp(prefix=".media-downloader-vapid-", dir=os.path.dirname(VAPID_PRIVATE_KEY_FILE))
+		try:
+			os.fchmod(fd, 0o600)
+			with os.fdopen(fd, "w", encoding="ascii") as key_file:
+				key_file.write(base64url_encode(private_value))
+				key_file.flush()
+				os.fsync(key_file.fileno())
+			try:
+				os.link(temporary_path, VAPID_PRIVATE_KEY_FILE)
+			except FileExistsError:
+				pass
+		finally:
+			try:
+				os.unlink(temporary_path)
+			except FileNotFoundError:
+				pass
+
+		with open(VAPID_PRIVATE_KEY_FILE, "r", encoding="ascii") as key_file:
+			stored_value = int.from_bytes(base64url_decode(key_file.read().strip()), "big")
+		return ec.derive_private_key(stored_value, ec.SECP256R1())
+
+##############################################################################################
+def get_vapid_public_key():
+	from cryptography.hazmat.primitives import serialization
+
+	public_key = get_vapid_private_key().public_key()
+	return base64url_encode(public_key.public_bytes(
+		serialization.Encoding.X962,
+		serialization.PublicFormat.UncompressedPoint
+	))
+
+##############################################################################################
+def hkdf_expand(prk, info, length):
+	output = b""
+	previous = b""
+	counter = 1
+	while len(output) < length:
+		previous = hmac.new(prk, previous + info + bytes([counter]), hashlib.sha256).digest()
+		output += previous
+		counter += 1
+	return output[:length]
+
+##############################################################################################
+def create_vapid_token(private_key, endpoint, subject):
+	from cryptography.hazmat.primitives import hashes
+	from cryptography.hazmat.primitives.asymmetric import ec
+	from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+	if not is_valid_vapid_subject(subject):
+		raise ValueError("VAPID subject must be a mailto: address or HTTPS URL.")
+
+	parsed_endpoint = urllib.parse.urlsplit(endpoint)
+	audience = f"{parsed_endpoint.scheme}://{parsed_endpoint.hostname}"
+	now = int(time.time())
+	header = base64url_encode(json.dumps({"typ": "JWT", "alg": "ES256"}, separators=(",", ":")).encode())
+	claims = base64url_encode(json.dumps({
+		"aud": audience,
+		"exp": now + 12 * 60 * 60,
+		"sub": subject
+	}, separators=(",", ":")).encode())
+	signing_input = f"{header}.{claims}".encode("ascii")
+	der_signature = private_key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
+	r_value, s_value = decode_dss_signature(der_signature)
+	signature = r_value.to_bytes(32, "big") + s_value.to_bytes(32, "big")
+	return f"{header}.{claims}.{base64url_encode(signature)}"
+
+##############################################################################################
+def is_valid_vapid_subject(subject):
+	if not isinstance(subject, str) or len(subject) > 512 or "'" in subject or any(ord(char) < 0x21 for char in subject):
+		return False
+	if subject.startswith("mailto:"):
+		return re.fullmatch(r"mailto:[^@\s]+@[^@\s]+", subject) is not None
+	if subject.startswith("https://"):
+		try:
+			parsed_subject = urllib.parse.urlsplit(subject)
+			return bool(parsed_subject.hostname) and not parsed_subject.username and not parsed_subject.password
+		except ValueError:
+			return False
+	return False
+
+##############################################################################################
+def encrypt_web_push_payload(subscription, payload):
+	from cryptography.hazmat.primitives.asymmetric import ec
+	from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+	from cryptography.hazmat.primitives import serialization
+
+	keys = subscription.get("keys", {})
+	public_key_encoded = keys.get("p256dh", "")
+	auth_secret_encoded = keys.get("auth", "")
+	user_public_bytes = base64url_decode(public_key_encoded)
+	auth_secret = base64url_decode(auth_secret_encoded)
+	if len(user_public_bytes) != 65 or len(auth_secret) != 16:
+		raise ValueError("Invalid push subscription encryption keys.")
+
+	user_public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), user_public_bytes)
+	server_private_key = ec.generate_private_key(ec.SECP256R1())
+	server_public_bytes = server_private_key.public_key().public_bytes(
+		serialization.Encoding.X962,
+		serialization.PublicFormat.UncompressedPoint
+	)
+	shared_secret = server_private_key.exchange(ec.ECDH(), user_public_key)
+	key_prk = hmac.new(auth_secret, shared_secret, hashlib.sha256).digest()
+	key_info = b"WebPush: info\x00" + user_public_bytes + server_public_bytes
+	input_keying_material = hkdf_expand(key_prk, key_info, 32)
+
+	salt = os.urandom(16)
+	prk = hmac.new(salt, input_keying_material, hashlib.sha256).digest()
+	content_encryption_key = hkdf_expand(prk, b"Content-Encoding: aes128gcm\x00", 16)
+	nonce = hkdf_expand(prk, b"Content-Encoding: nonce\x00", 12)
+	ciphertext = AESGCM(content_encryption_key).encrypt(nonce, payload + b"\x02", None)
+	return salt + (4096).to_bytes(4, "big") + bytes([len(server_public_bytes)]) + server_public_bytes + ciphertext
+
+##############################################################################################
+def validate_push_subscription(subscription):
+	if not isinstance(subscription, dict):
+		raise ValueError("Expected a push subscription object.")
+	endpoint = subscription.get("endpoint")
+	if not isinstance(endpoint, str) or len(endpoint) > 4096:
+		raise ValueError("Push subscription endpoint is invalid.")
+	parsed_endpoint = urllib.parse.urlsplit(endpoint or "")
+	host = (parsed_endpoint.hostname or "").lower()
+	allowed_host = (
+		host == "fcm.googleapis.com"
+		or host == "push.services.mozilla.com"
+		or host.endswith(".push.services.mozilla.com")
+		or host == "web.push.apple.com"
+		or host.endswith(".push.apple.com")
+		or host.endswith(".notify.windows.com")
+	)
+	if (
+		parsed_endpoint.scheme != "https"
+		or not allowed_host
+		or parsed_endpoint.username
+		or parsed_endpoint.password
+		or parsed_endpoint.port not in (None, 443)
+		or parsed_endpoint.fragment
+	):
+		raise ValueError("Unsupported push service endpoint.")
+
+	keys = subscription.get("keys")
+	if not isinstance(keys, dict):
+		raise ValueError("Push subscription keys are missing.")
+	public_key = keys.get("p256dh", "")
+	auth_secret = keys.get("auth", "")
+	if len(base64url_decode(public_key)) != 65 or len(base64url_decode(auth_secret)) != 16:
+		raise ValueError("Push subscription keys are invalid.")
+	return {"endpoint": endpoint, "keys": {"p256dh": public_key, "auth": auth_secret}}
+
+##############################################################################################
+def read_push_subscriptions():
+	try:
+		with open(PUSH_SUBSCRIPTIONS_FILE, "r", encoding="utf-8") as subscriptions_file:
+			subscriptions = json.load(subscriptions_file)
+	except FileNotFoundError:
+		return []
+	if not isinstance(subscriptions, list):
+		raise ValueError("Push subscription store must contain a list.")
+	return [validate_push_subscription(subscription) for subscription in subscriptions]
+
+##############################################################################################
+def write_push_subscriptions(subscriptions):
+	directory = os.path.dirname(PUSH_SUBSCRIPTIONS_FILE)
+	os.makedirs(directory, exist_ok=True)
+	fd, temporary_path = tempfile.mkstemp(prefix=".media-downloader-push-", dir=directory)
+	try:
+		os.fchmod(fd, 0o600)
+		with os.fdopen(fd, "w", encoding="utf-8") as subscriptions_file:
+			json.dump(subscriptions, subscriptions_file)
+			subscriptions_file.flush()
+			os.fsync(subscriptions_file.fileno())
+		os.replace(temporary_path, PUSH_SUBSCRIPTIONS_FILE)
+	except Exception:
+		try:
+			os.unlink(temporary_path)
+		except FileNotFoundError:
+			pass
+		raise
+
+##############################################################################################
+def save_push_subscription(subscription):
+	validated = validate_push_subscription(subscription)
+	with push_subscriptions_lock:
+		subscriptions = read_push_subscriptions()
+		subscriptions = [item for item in subscriptions if item["endpoint"] != validated["endpoint"]]
+		subscriptions.append(validated)
+		write_push_subscriptions(subscriptions)
+
+##############################################################################################
+def remove_push_subscription(endpoint):
+	with push_subscriptions_lock:
+		subscriptions = read_push_subscriptions()
+		filtered = [item for item in subscriptions if item["endpoint"] != endpoint]
+		if len(filtered) != len(subscriptions):
+			write_push_subscriptions(filtered)
+
+##############################################################################################
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+	def redirect_request(self, req, fp, code, msg, headers, new_url):
+		return None
+
+##############################################################################################
+def send_web_push_notification(title, message):
+	try:
+		from cryptography.hazmat.primitives import serialization
+
+		config = read_uci_config()
+		subject = config["global"].get("vapid_subject", "mailto:admin@example.com").strip()
+		private_key = get_vapid_private_key()
+		public_key = private_key.public_key().public_bytes(
+			serialization.Encoding.X962,
+			serialization.PublicFormat.UncompressedPoint
+		)
+		with push_subscriptions_lock:
+			subscriptions = read_push_subscriptions()
+		if not subscriptions:
+			return False
+
+		def limit_utf8(value, max_bytes):
+			return value.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
+
+		payload = json.dumps({
+			"title": limit_utf8(title, 256),
+			"body": limit_utf8(message, 2048),
+			"icon": "/app-icon.png",
+			"url": "/queue"
+		}, separators=(",", ":")).encode("utf-8")
+		expired_endpoints = []
+		success_count = 0
+		opener = urllib.request.build_opener(NoRedirectHandler())
+		for subscription in subscriptions:
+			endpoint = subscription["endpoint"]
+			try:
+				request = urllib.request.Request(
+					endpoint,
+					data=encrypt_web_push_payload(subscription, payload),
+					headers={
+						"Authorization": f"vapid t={create_vapid_token(private_key, endpoint, subject)}, k={base64url_encode(public_key)}",
+						"Content-Encoding": "aes128gcm",
+						"Content-Type": "application/octet-stream",
+						"TTL": "86400",
+						"Urgency": "normal"
+					},
+					method="POST"
+				)
+				with opener.open(request, timeout=10) as response:
+					if 200 <= response.status < 300:
+						success_count += 1
+			except urllib.error.HTTPError as push_err:
+				if push_err.code in (404, 410):
+					expired_endpoints.append(endpoint)
+				else:
+					log_message(f"[Web Push Warning] Delivery failed with HTTP {push_err.code}.")
+			except Exception as push_err:
+				log_message(f"[Web Push Warning] Delivery failed: {push_err}")
+
+		for endpoint in expired_endpoints:
+			remove_push_subscription(endpoint)
+		return success_count > 0
+	except Exception as push_err:
+		log_message(f"[Web Push Warning] Notification could not be sent: {push_err}")
+		return False
+
+##############################################################################################
 def check_ffmpeg_available():
 	"""Dynamically probe the host OS to see if FFmpeg is installed in the PATH"""
 	import shutil
@@ -204,6 +498,7 @@ def read_uci_config():
 			"allowed_domains": "thenkiri.com,dramakey.com",
 			"ntfy_topic": "",
 			"ntfy_enabled": "1",
+			"vapid_subject": "mailto:admin@example.com",
 			"theme_mode": "auto",
 			"default_series_view": "gallery"
 		},
@@ -275,6 +570,7 @@ def write_uci_config(config_data):
 		f.write(f"    option allowed_domains '{config_data['global'].get('allowed_domains', 'thenkiri.com,dramakey.com')}'\n")
 		f.write(f"    option ntfy_topic '{config_data['global'].get('ntfy_topic', '')}'\n")
 		f.write(f"    option ntfy_enabled '{config_data['global'].get('ntfy_enabled', '1')}'\n")
+		f.write(f"    option vapid_subject '{config_data['global'].get('vapid_subject', 'mailto:admin@example.com')}'\n")
 		f.write(f"    option theme_mode '{config_data['global'].get('theme_mode', 'auto')}'\n")
 		f.write(f"    option default_series_view '{config_data['global'].get('default_series_view', 'gallery')}'\n\n")
 
@@ -432,8 +728,13 @@ def background_download_worker():
 								f"{series_name} finished downloading.",
 								tags="clapper,white_check_mark"
 							)
+							send_web_push_notification("Movie Ready", f"{series_name} finished downloading.")
 						else:
 							send_push_notification(
+								"Episode Ready",
+								f"{series_name} - E{int(ep_num):02d} finished downloading."
+							)
+							send_web_push_notification(
 								"Episode Ready",
 								f"{series_name} - E{int(ep_num):02d} finished downloading."
 							)
@@ -799,6 +1100,10 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 				"Watchlist Promoted",
 				f"'{w_name}' appeared on {w_source} and was promoted to Feeds!",
 				tags="eyes,rocket"
+			)
+			send_web_push_notification(
+				"Watchlist Promoted",
+				f"'{w_name}' appeared on {w_source} and was promoted to Feeds!"
 			)
 
 	if promoted_any:
@@ -1555,11 +1860,29 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				)
 				series_data["poster"] = f"/api/posters/{s_id}" if cache_path and os.path.isfile(cache_path) else ""
 				series_data.pop("poster_cache_file", None)
+			config["global"].pop("vapid_private_key", None)
 
 			self.send_response(200)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps(config).encode('utf-8'))
+			return
+		#======================================================================
+		elif self.path == '/api/push/vapid-public-key':
+			try:
+				public_key = get_vapid_public_key()
+			except Exception as key_err:
+				log_message(f"[Web Push Error] Could not load VAPID key: {key_err}")
+				self.send_response(500)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Web Push is unavailable on the server."}).encode('utf-8'))
+				return
+
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"publicKey": public_key}).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path == '/api/logs':
@@ -1645,6 +1968,59 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		elif not self.is_authenticated():
 			self.send_response(401)
 			self.end_headers()
+			return
+		#======================================================================
+		elif self.path.rstrip('/') in ('/api/push/subscribe', '/api/push/unsubscribe'):
+			content_length = int(self.headers.get('Content-Length', 0))
+			try:
+				data = json.loads(self.rfile.read(content_length).decode('utf-8')) if content_length > 0 else {}
+			except (UnicodeDecodeError, json.JSONDecodeError):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Invalid JSON request body."}).encode('utf-8'))
+				return
+
+			if not isinstance(data, dict):
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Expected a JSON object."}).encode('utf-8'))
+				return
+
+			try:
+				if self.path.rstrip('/') == '/api/push/subscribe':
+					save_push_subscription(data.get("subscription"))
+				else:
+					endpoint = data.get("endpoint")
+					if not isinstance(endpoint, str):
+						raise ValueError("Push subscription endpoint is required.")
+					validate_push_subscription({
+						"endpoint": endpoint,
+						"keys": {
+							"p256dh": data.get("p256dh", ""),
+							"auth": data.get("auth", "")
+						}
+					})
+					remove_push_subscription(endpoint)
+			except ValueError as push_err:
+				self.send_response(400)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": str(push_err)}).encode('utf-8'))
+				return
+			except Exception as push_err:
+				log_message(f"[Web Push Error] Could not update subscription: {push_err}")
+				self.send_response(500)
+				self.send_header('Content-Type', 'application/json')
+				self.end_headers()
+				self.wfile.write(json.dumps({"status": "error", "message": "Could not update push subscription."}).encode('utf-8'))
+				return
+
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path.rstrip('/') == '/api/series/poster-preview':
@@ -1816,6 +2192,15 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					config["global"]["ntfy_topic"] = data["ntfy_topic"].strip()
 				if "ntfy_enabled" in data:
 					config["global"]["ntfy_enabled"] = "1" if str(data["ntfy_enabled"]) in ("1", "true", "True") else "0"
+				if "vapid_subject" in data:
+					subject = str(data["vapid_subject"]).strip()
+					if not is_valid_vapid_subject(subject):
+						self.send_response(400)
+						self.send_header('Content-Type', 'application/json')
+						self.end_headers()
+						self.wfile.write(json.dumps({"status": "error", "message": "VAPID contact must be a mailto: address or HTTPS URL."}).encode('utf-8'))
+						return
+					config["global"]["vapid_subject"] = subject
 				if "theme_mode" in data:
 					mode_val = str(data["theme_mode"]).strip().lower()
 					if mode_val in ("auto", "light", "dark"):
@@ -2093,6 +2478,14 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		#======================================================================
 		elif self.path.rstrip('/') == '/api/notify/test':
 			success = send_push_notification("Test Notification", "Media Downloader push notifications are working!")
+			self.send_response(200 if success else 400)
+			self.send_header('Content-Type', 'application/json')
+			self.end_headers()
+			self.wfile.write(json.dumps({"status": "success" if success else "error"}).encode('utf-8'))
+			return
+		#======================================================================
+		elif self.path.rstrip('/') == '/api/push/test':
+			success = send_web_push_notification("Test Notification", "Media Downloader browser push notifications are working!")
 			self.send_response(200 if success else 400)
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()

@@ -174,6 +174,19 @@
 						</div>
 					</div>
 					<div class="form-group">
+						<label>🌐 Browser Push Notifications (this device)</label>
+						<div class="input-button-row">
+							<button type="button" id="settingWebPushToggle" class="secondary-btn no-wrap" onclick="toggleWebPushNotifications()">Enable Browser Push</button>
+							<button type="button" id="settingWebPushTest" class="secondary-btn no-wrap" onclick="sendWebPushTest()">Test</button>
+						</div>
+						<small id="settingWebPushStatus" class="series-view-setting-hint">Requires HTTPS and notification permission. Alerts can arrive while the app is closed.</small>
+					</div>
+					<div class="form-group">
+						<label for="settingVapidSubject">Web Push Contact (VAPID)</label>
+						<input type="text" id="settingVapidSubject" placeholder="mailto:you@example.com">
+						<small class="series-view-setting-hint">Use a contact email or an HTTPS URL for push service identification.</small>
+					</div>
+					<div class="form-group">
 						<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
 						<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
 					</div>
@@ -856,6 +869,10 @@
 				if (ntfyInput) {
 					ntfyInput.value = (currentDashboardData.global && currentDashboardData.global.ntfy_topic) || '';
 				}
+				const vapidSubjectInput = document.getElementById('settingVapidSubject');
+				if (vapidSubjectInput) {
+					vapidSubjectInput.value = (currentDashboardData.global && currentDashboardData.global.vapid_subject) || 'mailto:admin@example.com';
+				}
 
 				const serverDefaultTheme = (currentDashboardData.global && currentDashboardData.global.theme_mode) || 'auto';
 
@@ -1316,7 +1333,7 @@
 
 		document.getElementById('configForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
-			await fetch('/api/series/_config', {
+			const response = await fetch('/api/series/_config', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -1329,10 +1346,16 @@
 					allowed_domains: document.getElementById('settingAllowedDomains').value.trim(),
 					ntfy_enabled: document.getElementById('settingNtfyEnabled').checked ? '1' : '0',
 					ntfy_topic: document.getElementById('settingNtfyTopic').value.trim(),
+					vapid_subject: document.getElementById('settingVapidSubject').value.trim(),
 					theme_mode: document.getElementById('settingDefaultTheme').value,
 					default_series_view: document.getElementById('settingDefaultSeriesView').value
 				})
 			});
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({}));
+				showToast(errorData.message || 'Failed to save system application configuration.', false);
+				return;
+			}
 			showToast('System application configuration saved successfully.');
 			await loadDashboardData();
 		});
@@ -1352,6 +1375,99 @@
 				showToast('Test push notification sent!');
 			} else {
 				showToast('Failed to send test notification. Check server logs.', false);
+			}
+		};
+
+		const updateWebPushControls = async () => {
+			const toggle = document.getElementById('settingWebPushToggle');
+			const test = document.getElementById('settingWebPushTest');
+			const status = document.getElementById('settingWebPushStatus');
+			if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+				toggle.disabled = true;
+				test.disabled = true;
+				status.textContent = 'Browser push is not supported by this browser.';
+				return;
+			}
+
+			try {
+				const registration = await navigator.serviceWorker.ready;
+				const subscription = await registration.pushManager.getSubscription();
+				toggle.textContent = subscription ? 'Disable Browser Push' : 'Enable Browser Push';
+				status.textContent = subscription
+					? 'Browser push is enabled on this device.'
+					: 'Requires HTTPS and notification permission. Alerts can arrive while the app is closed.';
+			} catch (error) {
+				console.error('Unable to check browser push status:', error);
+				status.textContent = 'Unable to check browser push status. Check the service worker.';
+			}
+		};
+
+		const toggleWebPushNotifications = async () => {
+			const toggle = document.getElementById('settingWebPushToggle');
+			toggle.disabled = true;
+			try {
+				if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+					throw new Error('Browser push is not supported by this browser.');
+				}
+				const permissionResult = Notification.permission === 'default'
+					? Notification.requestPermission()
+					: Promise.resolve(Notification.permission);
+				const registration = await navigator.serviceWorker.ready;
+				const currentSubscription = await registration.pushManager.getSubscription();
+				if (currentSubscription) {
+					const unsubscribeResponse = await fetch('/api/push/unsubscribe', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							endpoint: currentSubscription.endpoint,
+							p256dh: currentSubscription.toJSON().keys.p256dh,
+							auth: currentSubscription.toJSON().keys.auth
+						})
+					});
+					if (!unsubscribeResponse.ok) throw new Error('Server could not remove this device subscription.');
+					await currentSubscription.unsubscribe();
+					showToast('Browser push disabled on this device.');
+				} else {
+					const permission = await permissionResult;
+					if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+
+					const keyResponse = await fetch('/api/push/vapid-public-key');
+					if (!keyResponse.ok) throw new Error('Could not load Web Push configuration from the server.');
+					const { publicKey } = await keyResponse.json();
+					const padding = '='.repeat((4 - publicKey.length % 4) % 4);
+					const rawKey = window.atob((publicKey + padding).replace(/-/g, '+').replace(/_/g, '/'));
+					const applicationServerKey = Uint8Array.from(rawKey, char => char.charCodeAt(0));
+					const subscription = await registration.pushManager.subscribe({
+						userVisibleOnly: true,
+						applicationServerKey
+					});
+					const subscribeResponse = await fetch('/api/push/subscribe', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ subscription: subscription.toJSON() })
+					});
+					if (!subscribeResponse.ok) {
+						await subscription.unsubscribe();
+						throw new Error('Server could not save this device subscription.');
+					}
+					showToast('Browser push enabled on this device.');
+				}
+			} catch (error) {
+				console.error('Browser push subscription update failed:', error);
+				showToast(error.message || 'Could not update browser push settings.', false);
+			} finally {
+				toggle.disabled = false;
+				await updateWebPushControls();
+			}
+		};
+
+		const sendWebPushTest = async () => {
+			try {
+				const response = await fetch('/api/push/test', { method: 'POST' });
+				if (!response.ok) throw new Error('No browser push delivery succeeded. Enable push on this device and check server logs.');
+				showToast('Browser push test notification sent!');
+			} catch (error) {
+				showToast(error.message || 'Failed to send browser push test.', false);
 			}
 		};
 
@@ -1960,6 +2076,7 @@
 		window.onload = () => {
 			handleInitialUrlRouting();
 			handleIncomingShareTarget()
+			updateWebPushControls();
 
 			const logsTab = document.getElementById('logs-tab');
 			if (logsTab && logsTab.classList.contains('active')) {

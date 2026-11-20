@@ -1,12 +1,3 @@
-• Series Poster Thumbnails
-
-	• Where the image comes from: Both DramaKey and TheNkiri include an Open Graph meta tag (<meta property="og:image" content="https://...">) or a WordPress wp-post-image thumbnail on every series page.
-	• How it fits your code:
-		• Backend (media-downloader.py): During run_downloader_cycle(), extract that og:image URL with a single regex (re.search(r'<meta property=["\']og:image["\'] content=["\']([^"\']+)["\']', html)) and save it once to your UCI config (s_data['poster'] = poster_url) if it isn't already stored.
-		• Frontend (index.html): Render a small 36px × 52px (border-radius: 4px; object-fit: cover;) thumbnail right beside the show title in #seriesTable. Because your mobile CSS already hides columns 1 and 3 and turns the title cell into a flex row, placing the image inside .responsive-name-cell keeps it visible on both desktop and mobile without breaking your two-column mobile layout.
-
-===========================================================================================
-
 • Global "Force All Re-downloads" Button
 
 	If a drive crashes or files are accidentally deleted locally, you currently have to manually clear out the downloaded_episodes tracking string for each show in /etc/config/media-downloader.

@@ -10,7 +10,7 @@ hashcopy() {
 
 touch .hash
 sha256sum files/* > .hash_new
-hashcopy files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader.py
+hashcopy files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader/media-downloader.py
 hashcopy files/index.html root@homelab.lan:/usr/share/media-downloader/index.html
 hashcopy files/wallpaper.webp root@homelab.lan:/usr/share/media-downloader/wallpaper.webp
 hashcopy files/manifest.json root@homelab.lan:/usr/share/media-downloader/manifest.json

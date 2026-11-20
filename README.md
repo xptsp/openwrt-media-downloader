@@ -6,13 +6,13 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 
 ## ✨ Features
 
-* **🎛️ Low Memory Footprint:** Built entirely using Python's native standard libraries (`http.server`, `urllib`, and `json`). Does not require heavy third-party framework dependencies like FastAPI, Flask, or BeautifulSoup, preserving host RAM.
+* **🎛️ Low Memory Footprint:** The downloader core uses Python's standard libraries (`http.server`, `urllib`, and `json`) without heavyweight frameworks like FastAPI, Flask, or BeautifulSoup. Native Web Push uses the `python3-cryptography` package for VAPID signing and payload encryption.
 * **📱 Progressive Web App (PWA) & Android Share Target:** Features a responsive, mobile-first dashboard with folder-style tabs, light/dark themes, and bottom-anchored mobile controls. Installs directly to your home screen and integrates into the mobile Share sheet to clean titles, detect `Season 02+` subfolders, and pre-fill Jellyfin paths in one tap.
 * **🖼️ Switchable Series Views:** Choose between a responsive poster gallery and the classic series table. The choice is saved per device/browser, with a configurable default for devices that have not chosen an override.
 * **🗂️ Local Poster Cache:** Saves series posters in a configurable cache directory and serves the cached images from the dashboard. Existing poster files are reused on subsequent syncs; the image is fetched again if its cache file is missing.
 * **👀 Automated Watchlist & Site Search:** Tracks upcoming shows and movies grouped by source site without needing a URL up front. Probes sites on save or during scheduled syncs, offers interactive multi-match selection when multiple titles match, and auto-promotes releases straight into active downloads.
 * **🎬 Separate TV Series & Movie Routing:** Supports both multi-episode TV series (`Show Name - S01E01.mkv` in `base_dir`) and standalone movies (`Movie Title.mkv` in `movies_dir`), automatically marking movies `complete` once downloaded.
-* **🔔 Instant Mobile Push Notifications (`ntfy.sh`):** Sends real-time alerts to your phone whenever an episode finishes downloading, a movie is ready, or a Watchlist title promotes—complete with an enable/mute toggle and live test button in Settings.
+* **🔔 Instant Push Notifications:** Sends alerts through ntfy.sh and native browser Web Push whenever an episode finishes downloading, a movie is ready, or a Watchlist title promotes. Browser subscriptions are managed per device from Settings.
 * **⏳ Full Queue & Crawler Control:** Features a dedicated Queue tab with real-time progress bars, deduplicates episodes that are already queued or downloading, individual removal for pending items, a **Clear Queue** button, and an emergency **Stop & Clear All** abort switch that terminates active `curl`/`ffmpeg` transfers, cleans up partial files, and halts in-flight scraping loops immediately.
 * **🔓 File Locker & Stream Automation:** Follows episode links to supported file hosts, including `downloadwella.com` and `wetafiles.com`, submits free-download forms, and resolves the resulting video URL.
 * **🔀 Smart Soft Dependencies (FFmpeg & Curl):** Uses an adaptable download pipeline. Direct media links (`.mp4` / `.mkv`) are handled via system `curl` character streams, while `.m3u8` HLS playlists trigger a soft-dependency handoff to local `ffmpeg` workers if installed.
@@ -52,7 +52,7 @@ Connect to your host machine via SSH and pull down the minimum Python core stand
 ```bash
 # On OpenWrt:
 apk update
-apk add python3-light python3-urllib python3-codecs python3-openssl curl
+apk add python3-light python3-urllib python3-codecs python3-openssl python3-cryptography curl
 
 # (Optional for HLS/.m3u8 stream support)
 apk add ffmpeg
@@ -76,6 +76,7 @@ config global 'main'
     option allowed_domains 'thenkiri.com,dramakey.com'
     option ntfy_enabled '1'
     option ntfy_topic 'your-private-ntfy-topic'
+    option vapid_subject 'mailto:you@example.com'
     option theme_mode 'auto'
     option default_series_view 'gallery'
 
@@ -124,6 +125,11 @@ Because mobile browsers restrict Progressive Web App and Share Target features t
 1. Connect to your router/NAS via SSH using local port forwarding (tunneling local port `8080` to `127.0.0.1:8080`).
 2. Open Chrome or Safari on your phone and head directly to **`http://localhost:8080`**.
 3. Tap **Add to Home Screen** or **Install App** to deploy the standalone app wrapper to your device launcher.
+
+### Browser Push Notifications
+After opening the dashboard over HTTPS (or localhost), visit **Settings** and choose **Enable Browser Push** on each device. Grant the browser notification permission; episode, movie, and Watchlist promotion alerts can then arrive even when the PWA is closed. Use **Test** beside the browser push control to verify delivery. The server persists its VAPID private key and device subscriptions under `/etc/config/` with owner-only permissions; keep those files when backing up the app configuration. Set `vapid_subject` to a contact email or HTTPS URL identifying the service.
+
+The existing ntfy.sh integration remains independently configurable. Browser Web Push requires the `python3-cryptography` runtime package and supported browser push services; it does not require an ntfy account.
 
 ---
 
