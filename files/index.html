@@ -137,42 +137,14 @@
 
 		<!-- TAB 5: Program Configuration Panel -->
 		<div id="settings-tab" class="tab-content">
-			<form id="configForm">
-				<div id="storagePanel" class="storage-panel">
-					<div class="storage-text">
-						<span>💽 Disk Storage</span>
-						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
-					</div>
-					<div class="progress-container storage-progress">
-						<div id="storageBar" class="progress-bar"></div>
-					</div>
+			<form id="configForm" novalidate>
+				<div class="settings-subtab-nav" role="tablist" aria-label="Settings categories">
+					<button type="button" id="settingsNotificationsTab" class="settings-subtab-btn active" role="tab" aria-selected="true" aria-controls="settingsNotificationsPanel" tabindex="0" onclick="switchSettingsSubtab('settingsNotificationsPanel')">🔔 Notifications</button>
+					<button type="button" id="settingsDirectoriesTab" class="settings-subtab-btn" role="tab" aria-selected="false" aria-controls="settingsDirectoriesPanel" tabindex="-1" onclick="switchSettingsSubtab('settingsDirectoriesPanel')">📁 Directories</button>
+					<button type="button" id="settingsOtherTab" class="settings-subtab-btn" role="tab" aria-selected="false" aria-controls="settingsOtherPanel" tabindex="-1" onclick="switchSettingsSubtab('settingsOtherPanel')">⚙️ Other</button>
+				</div>
 
-					<div class="form-group">
-						<label>📺 Series Base Directory:</label>
-						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Series">
-					</div>
-					<div class="form-group">
-						<label for="cache_dir">🖼️ Poster Cache Directory</label>
-						<input type="text" id="cache_dir" placeholder="/mnt/sda1/Downloads/.media-downloader-cache">
-						<small class="series-view-setting-hint">Series poster images are saved here on the server.</small>
-					</div>
-					<div class="form-group">
-						<label for="settingMoviesDir">🎬 Movies Base Directory</label>
-						<input type="text" id="settingMoviesDir" placeholder="/mnt/sd1/Movies">
-					</div>
-					<div class="form-group">
-						<label class="inline-checkbox-label">
-							<input type="checkbox" id="settingNtfyEnabled" class="inline-checkbox">
-							<span>🔔 Enable Push Notifications (ntfy.sh)</span>
-						</label>
-					</div>
-					<div class="form-group">
-						<label for="settingNtfyTopic">ntfy.sh Topic ID</label>
-						<div class="input-button-row">
-							<input type="text" id="settingNtfyTopic" placeholder="e.g., donas-kdrama-9821">
-							<button type="button" class="secondary-btn no-wrap" onclick="sendTestNotification()">Test</button>
-						</div>
-					</div>
+				<div id="settingsNotificationsPanel" class="settings-subtab-panel storage-panel" role="tabpanel" aria-labelledby="settingsNotificationsTab">
 					<div class="form-group">
 						<label>🌐 Browser Push Notifications (this device)</label>
 						<div class="input-button-row">
@@ -186,6 +158,46 @@
 						<input type="text" id="settingVapidSubject" placeholder="mailto:you@example.com">
 						<small class="series-view-setting-hint">Use a contact email or an HTTPS URL for push service identification.</small>
 					</div>
+					<div class="settings-divider" role="separator" aria-orientation="horizontal"></div>
+					<div class="form-group">
+						<label class="inline-checkbox-label">
+							<input type="checkbox" id="settingNtfyEnabled" class="inline-checkbox">
+							<span>🔔 Enable Push Notifications (ntfy.sh)</span>
+						</label>
+					</div>
+					<div class="form-group">
+						<label for="settingNtfyTopic">ntfy.sh Topic ID</label>
+						<div class="input-button-row">
+							<input type="text" id="settingNtfyTopic" placeholder="e.g., donas-kdrama-9821">
+							<button type="button" class="secondary-btn no-wrap" onclick="sendTestNotification()">Test</button>
+						</div>
+					</div>
+				</div>
+
+				<div id="settingsDirectoriesPanel" class="settings-subtab-panel storage-panel" role="tabpanel" aria-labelledby="settingsDirectoriesTab" hidden>
+					<div class="storage-text">
+						<span>💽 Disk Storage</span>
+						<span id="storageStats">0 GB / 0 GB Free (0%)</span>
+					</div>
+					<div class="progress-container storage-progress">
+						<div id="storageBar" class="progress-bar"></div>
+					</div>
+					<div class="form-group">
+						<label>📺 Series Base Directory:</label>
+						<input type="text" id="base_dir" required placeholder="/mnt/sda1/Series">
+					</div>
+					<div class="form-group">
+						<label for="cache_dir">🖼️ Poster Cache Directory</label>
+						<input type="text" id="cache_dir" placeholder="/mnt/sda1/Downloads/.media-downloader-cache">
+						<small class="series-view-setting-hint">Series poster images are saved here on the server.</small>
+					</div>
+					<div class="form-group">
+						<label for="settingMoviesDir">🎬 Movies Base Directory</label>
+						<input type="text" id="settingMoviesDir" placeholder="/mnt/sd1/Movies">
+					</div>
+				</div>
+
+				<div id="settingsOtherPanel" class="settings-subtab-panel storage-panel" role="tabpanel" aria-labelledby="settingsOtherTab" hidden>
 					<div class="form-group">
 						<label for="settingAllowedDomains">🌐 Allowed Source Domains (comma-separated)</label>
 						<input type="text" id="settingAllowedDomains" placeholder="thenkiri.com, dramakey.com">
@@ -226,6 +238,7 @@
 						</div>
 					</div>
 				</div>
+
 				<div class="settings-mobile-dock log-actions">
 					<button type="submit" class="success-btn">💾 Save Configuration</button>
 				</div>
@@ -528,6 +541,23 @@
 				fetchQueueStatus();
 				logInterval = setInterval(fetchQueueStatus, 1000);
 			}
+		};
+
+		window.switchSettingsSubtab = (panelId) => {
+			const panels = document.querySelectorAll('#configForm .settings-subtab-panel');
+			const tabs = document.querySelectorAll('#configForm .settings-subtab-btn');
+			const targetPanel = document.getElementById(panelId);
+			if (!targetPanel || !targetPanel.classList.contains('settings-subtab-panel')) return;
+
+			panels.forEach((panel) => {
+				panel.hidden = panel !== targetPanel;
+			});
+			tabs.forEach((tab) => {
+				const selected = tab.getAttribute('aria-controls') === panelId;
+				tab.classList.toggle('active', selected);
+				tab.setAttribute('aria-selected', String(selected));
+				tab.tabIndex = selected ? 0 : -1;
+			});
 		};
 
 		const handleInitialUrlRouting = async () => {
@@ -1333,6 +1363,12 @@
 
 		document.getElementById('configForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
+			if (!baseDirInput.value.trim()) {
+				showToast('Series Base Directory is required.', false);
+				switchSettingsSubtab('settingsDirectoriesPanel');
+				baseDirInput.focus();
+				return;
+			}
 			const response = await fetch('/api/series/_config', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },

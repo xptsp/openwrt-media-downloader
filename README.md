@@ -18,7 +18,7 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 * **🔀 Smart Soft Dependencies (FFmpeg & Curl):** Uses an adaptable download pipeline. Direct media links (`.mp4` / `.mkv`) are handled via system `curl` character streams, while `.m3u8` HLS playlists trigger a soft-dependency handoff to local `ffmpeg` workers if installed.
 * **🔄 State Persistence (UCI Format):** Integrates directly into native embedded system parameters. Storage paths, domain allowlists, notification settings, watchlist items, and downloaded sequences are managed via `/etc/config/media-downloader`.
 * **📁 Recursive Storage Synchronizer & Safe Pruning:** Scans nested season folders on startup or on demand (`S01E02`, `Ep 4`) to sync existing files back to your config, while safely evicting unchecked episodes (including `.nfo` and `.trickplay` assets) when edited manually.
-* **🛡️ Domain Allowlist & Session Security:** Restricts incoming shared links, series additions, and watchlist sources to a user-configurable list of allowed domains, backed by a cookie-based authentication gateway (`SameSite=Strict`, `HttpOnly`) and thread-safe runtime logs.
+* **🛡️ Domain Allowlist & Session Security:** Restricts incoming shared links, series additions, and watchlist sources to a user-configurable list of allowed domains, backed by a cookie-based authentication gateway (`SameSite=Strict`, `HttpOnly`). Login cookies remain valid for 30 days unless you log out or restart the server.
 
 ---
 

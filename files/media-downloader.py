@@ -26,6 +26,7 @@ CONFIG_FILE = "/etc/config/media-downloader"
 HTML_FILE = "/usr/share/media-downloader/index.html"
 PUSH_SUBSCRIPTIONS_FILE = "/usr/libexec/media-downloader/media-downloader.push"
 VAPID_PRIVATE_KEY_FILE = "/usr/libexec/media-downloader/media-downloader.vapid"
+SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
 # Global memory log buffer to avoid grinding router flash storage
 ACTIVE_DOWNLOADS = {}
@@ -34,7 +35,7 @@ LOG_BUFFER = []
 LOG_MAX_LINES = 150
 log_lock = threading.Lock()
 
-ACTIVE_SESSIONS = set()
+ACTIVE_SESSIONS = {}
 session_lock = threading.Lock()
 push_subscriptions_lock = threading.Lock()
 vapid_key_lock = threading.Lock()
@@ -1646,8 +1647,11 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		session_id = cookies.get('session_id', [None])[0]
 
 		with session_lock:
-			if session_id and session_id in ACTIVE_SESSIONS:
-				return True
+			expires_at = ACTIVE_SESSIONS.get(session_id)
+			if expires_at:
+				if expires_at > time.time():
+					return True
+				ACTIVE_SESSIONS.pop(session_id, None)
 		return False
 
 	###########################################################################
@@ -1901,12 +1905,11 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 
 			if session_id:
 				with session_lock:
-					if session_id in ACTIVE_SESSIONS:
-						ACTIVE_SESSIONS.remove(session_id)
+					ACTIVE_SESSIONS.pop(session_id, None)
 
 			# 🧼 Set-Cookie to a past date to instruct the browser to scrub it instantly, then bounce to home login page
 			self.send_response(303)
-			self.send_header('Set-Cookie', 'session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict')
+			self.send_header('Set-Cookie', 'session_id=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict')
 			self.send_header('Location', '/')
 			self.end_headers()
 			return
@@ -1953,11 +1956,12 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 
 			if user_submitted == configured_user and password_submitted == configured_password:
 				new_session_id = secrets.token_hex(24)
+				expires_at = time.time() + SESSION_MAX_AGE
 				with session_lock:
-					ACTIVE_SESSIONS.add(new_session_id)
+					ACTIVE_SESSIONS[new_session_id] = expires_at
 
 				self.send_response(303)
-				self.send_header('Set-Cookie', f'session_id={new_session_id}; Path=/; HttpOnly; SameSite=Strict')
+				self.send_header('Set-Cookie', f'session_id={new_session_id}; Path=/; Max-Age={SESSION_MAX_AGE}; HttpOnly; SameSite=Strict')
 				self.send_header('Location', '/')
 				self.end_headers()
 				return
