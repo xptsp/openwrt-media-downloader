@@ -366,7 +366,7 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 		return None
 
 ##############################################################################################
-def send_web_push_notification(title, message):
+def send_web_push_notification(title, message, url="/queue"):
 	try:
 		from cryptography.hazmat.primitives import serialization
 
@@ -389,7 +389,7 @@ def send_web_push_notification(title, message):
 			"title": limit_utf8(title, 256),
 			"body": limit_utf8(message, 2048),
 			"icon": "/app-icon.png",
-			"url": "/queue"
+			"url": url
 		}, separators=(",", ":")).encode("utf-8")
 		expired_endpoints = []
 		success_count = 0
@@ -529,7 +529,8 @@ def read_uci_config():
 				elif current_section_type == "watchlist":
 					config_dict["watchlist"][current_section_name] = {
 						"name": "",
-						"source": "thenkiri.com"
+						"source": "thenkiri.com",
+						"match_candidates": []
 					}
 				continue
 			opt_match = re.match(r"^option\s+(\w+)\s+'([^']+)'", line)
@@ -538,7 +539,22 @@ def read_uci_config():
 				if current_section_type == "global":
 					config_dict["global"][key] = val
 				elif current_section_type == "watchlist" and current_section_name:
-					config_dict["watchlist"][current_section_name][key] = val
+					if key == "match_candidates":
+						try:
+							decoded = base64.urlsafe_b64decode(val + "=" * (-len(val) % 4))
+							matches = json.loads(decoded.decode("utf-8"))
+							if not isinstance(matches, list) or any(
+								not isinstance(match, dict)
+								or not isinstance(match.get("title"), str)
+								or not isinstance(match.get("url"), str)
+								for match in matches
+							):
+								raise ValueError("Invalid Watchlist match candidate data.")
+							config_dict["watchlist"][current_section_name][key] = matches
+						except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as err:
+							log_message(f"[Watchlist] Ignoring invalid saved match choices for '{current_section_name}': {err}")
+					else:
+						config_dict["watchlist"][current_section_name][key] = val
 				elif current_section_type == "series" and current_section_name:
 					if key == "downloaded_episodes":
 						config_dict["series"][current_section_name][key] = [x.strip() for x in val.split(',') if x.strip()]
@@ -593,8 +609,15 @@ def write_uci_config(config_data):
 		for w_id, w_data in config_data.get("watchlist", {}).items():
 			f.write(f"config watchlist '{w_id}'\n")
 			f.write(f"    option name '{w_data.get('name', '')}'\n")
-			f.write(f"    option source '{w_data.get('source', 'thenkiri.com')}'\n\n")
-			f.write(f"    option type '{s_data.get('type', 'series')}'\n")
+			f.write(f"    option source '{w_data.get('source', 'thenkiri.com')}'\n")
+			f.write(f"    option type '{w_data.get('type', 'series')}'\n")
+			matches = w_data.get("match_candidates", [])
+			if matches:
+				encoded_matches = base64.urlsafe_b64encode(
+					json.dumps(matches, separators=(",", ":")).encode("utf-8")
+				).decode("ascii").rstrip("=")
+				f.write(f"    option match_candidates '{encoded_matches}'\n")
+			f.write("\n")
 
 ##############################################################################################
 def scan_existing_episodes():
@@ -986,13 +1009,15 @@ def find_all_series_on_site(w_name, w_source, desktop_headers, use_search=True):
 	return results
 
 ##############################################################################################
-def find_series_on_site(w_name, w_source, desktop_headers, cached_home_links=None, use_search=False):
-	"""Searches a source site's cached homepage (and optionally /?s= search) for a matching series URL."""
+def find_series_matches_on_site(w_name, w_source, desktop_headers, cached_home_links=None, use_search=False):
+	"""Returns all matching title links from a site's cached homepage and optional search results."""
 	clean_target = re.sub(r'[^a-z0-9\s]', '', w_name.lower()).strip()
 	if not clean_target:
-		return None
+		return []
 
 	candidate_pages = []
+	matches = []
+	seen_urls = set()
 	if cached_home_links and w_source in cached_home_links:
 		candidate_pages.append(cached_home_links[w_source])
 
@@ -1019,9 +1044,18 @@ def find_series_on_site(w_name, w_source, desktop_headers, cached_home_links=Non
 			text_norm = re.sub(r'[^a-z0-9\s]', '', text_clean.lower()).strip()
 
 			if clean_target in text_norm:
-				return href
+				normalized_url = href.split('#')[0].rstrip("/") + "/"
+				if normalized_url.lower() in seen_urls:
+					continue
+				seen_urls.add(normalized_url.lower())
+				display_title = re.sub(r'^(?:Download|Watch)\s+', '', text_clean, flags=re.IGNORECASE).strip()
+				matches.append({
+					"title": display_title or w_name,
+					"url": normalized_url,
+					"source": w_source
+				})
 
-	return None
+	return matches
 
 ##############################################################################################
 def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=False):
@@ -1052,6 +1086,7 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 				log_message(f"[Watchlist] Failed to fetch {home_url}: {err}")
 
 	promoted_any = False
+	config_changed = False
 	base_dir = config["global"].get("base_dir", "/mnt/hdd/KDramas").rstrip("/")
 
 	for w_id in items_to_check:
@@ -1061,7 +1096,7 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 		if not w_name:
 			continue
 
-		matched_url = find_series_on_site(
+		matches = find_series_matches_on_site(
 			w_name,
 			w_source,
 			desktop_headers,
@@ -1069,7 +1104,26 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 			use_search=use_search
 		)
 
-		if matched_url:
+		if len(matches) > 1:
+			if w_data.get("match_candidates") != matches:
+				w_data["match_candidates"] = matches
+				config_changed = True
+				log_message(f"[Watchlist] Found {len(matches)} matches for '{w_name}' on {w_source}; waiting for the user to choose one.")
+				notification_title = "Watchlist Choice Required"
+				notification_message = (
+					f"'{w_name}' has {len(matches)} matching items on {w_source}. "
+					"Open the Watchlist and choose one to promote to Feeds."
+				)
+				send_push_notification(notification_title, notification_message, tags="eyes,warning")
+				send_web_push_notification(notification_title, notification_message, url="/watchlist")
+			continue
+
+		if w_data.get("match_candidates"):
+			log_message(f"[Watchlist] '{w_name}' has multiple saved matches and is waiting for the user to choose one.")
+			continue
+
+		if len(matches) == 1:
+			matched_url = matches[0]["url"]
 			w_type = w_data.get("type", "series")
 			movies_dir = config["global"].get("movies_dir", "/mnt/hdd/Movies").rstrip("/")
 			safe_folder = re.sub(r'[^a-zA-Z0-9\s.\'-]', '', w_name).strip()
@@ -1107,7 +1161,7 @@ def check_watchlist_promotions(desktop_headers, target_w_id=None, use_search=Fal
 				f"'{w_name}' appeared on {w_source} and was promoted to Feeds!"
 			)
 
-	if promoted_any:
+	if promoted_any or config_changed:
 		write_uci_config(config)
 
 	return promoted_any

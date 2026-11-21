@@ -523,7 +523,7 @@
 
 			const targetBtn = document.querySelector(`.tab-nav .tab-btn[onclick*='${tabId}']`);
 			if (targetBtn) targetBtn.classList.add('active');
-			if (tabId === 'series-tab') {
+			if (tabId === 'series-tab' || tabId === 'watchlist-tab') {
 				loadDashboardData();
 			}
 
@@ -850,8 +850,20 @@
 							// Two-column series rows under this server
 							grouped[src].forEach(([wId, wData]) => {
 								const safeName = (wData.name || wId).replace(/'/g, "\\'");
+								const candidateMatches = Array.isArray(wData.match_candidates) ? wData.match_candidates : [];
+								const candidateChoices = candidateMatches.length > 1
+									? `<div class="watchlist-match-options">
+										<strong>Multiple matches found — choose which one to promote:</strong>
+										${candidateMatches.map((match, index) => `
+											<button type="button" class="secondary-btn watchlist-match-option"
+												data-watchlist-id="${wId}" data-match-index="${index}">
+												${String(match.title || match.url).replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]))}
+											</button>
+										`).join('')}
+									</div>`
+									: '';
 								html += `<tr>
-									<td><strong>${wData.name || wId}</strong></td>
+									<td><strong>${wData.name || wId}</strong>${candidateChoices}</td>
 									<td>
 										<button class="action-btn edit" onclick="openEditWatchlistModal('${wId}')">Edit</button>
 										<button class="action-btn remove" onclick="deleteWatchlistItem('${wId}', '${safeName}')">Remove</button>
@@ -861,6 +873,11 @@
 						});
 
 						watchlistBody.innerHTML = html;
+						watchlistBody.querySelectorAll('.watchlist-match-option').forEach(button => {
+							button.addEventListener('click', () => {
+								promoteWatchlistCandidate(button.dataset.watchlistId, Number(button.dataset.matchIndex));
+							});
+						});
 					}
 				}
 
@@ -1914,7 +1931,11 @@
 			await fetch(`/api/watchlist/${targetId}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name, source })
+				body: JSON.stringify({
+					name,
+					source,
+					type: document.getElementById('watchlistType').value
+				})
 			});
 
 			const wasEditing = Boolean(editWatchlistId);
@@ -1925,7 +1946,7 @@
 
 		let isPromotingWatchlist = false;
 
-		const promoteWatchlistSearchMatch = async (title, url) => {
+		const promoteWatchlistSearchMatch = async (title, url, watchlistId = editWatchlistId, typeOverride = null) => {
 			if (isPromotingWatchlist) return;
 			isPromotingWatchlist = true;
 
@@ -1942,7 +1963,7 @@
 					.trim() || title;
 
 				const watchlistTypeEl = document.getElementById('watchlistType');
-				const selectedType = watchlistTypeEl ? watchlistTypeEl.value : 'series';
+				const selectedType = typeOverride || (watchlistTypeEl ? watchlistTypeEl.value : 'series');
 
 				const seriesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.base_dir) || '/mnt/sda1/KDramas';
 				const moviesBase = (window.currentDashboardData && currentDashboardData.global && currentDashboardData.global.movies_dir) || '/mnt/sda1/KMovies';
@@ -1968,11 +1989,12 @@
 				});
 
 				if (res.ok) {
-					// If we were editing an existing watchlist entry, remove it now that it's promoted
-					if (editWatchlistId) {
-						await fetch(`/api/watchlist/${editWatchlistId}`, { method: 'DELETE' });
+					if (watchlistId) {
+						await fetch(`/api/watchlist/${watchlistId}`, { method: 'DELETE' });
 					}
-					closeAddWatchlistModal();
+					if (document.getElementById('addWatchlistModal').classList.contains('active')) {
+						closeAddWatchlistModal();
+					}
 					showToast(`Promoted "${cleanTitle}" straight to Feeds!`);
 					await loadDashboardData();
 					if (typeof triggerSyncUpdates === 'function') {
@@ -1985,6 +2007,16 @@
 			} finally {
 				isPromotingWatchlist = false;
 			}
+		};
+
+		const promoteWatchlistCandidate = async (watchlistId, matchIndex) => {
+			const watchlistItem = currentDashboardData.watchlist && currentDashboardData.watchlist[watchlistId];
+			const match = watchlistItem && watchlistItem.match_candidates && watchlistItem.match_candidates[matchIndex];
+			if (!match) {
+				showToast('That Watchlist match is no longer available. Refresh and try again.', false);
+				return;
+			}
+			await promoteWatchlistSearchMatch(match.title, match.url, watchlistId, watchlistItem.type || 'series');
 		};
 
 		// =====================================================================
