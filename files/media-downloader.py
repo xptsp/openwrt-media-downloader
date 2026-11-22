@@ -1778,7 +1778,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		# 🔓 ASSET PASS GATES: Allow unauthenticated requests to pull design layout tools
 		base_dir = os.path.dirname(HTML_FILE)
-		if self.path in ['/style.css', '/wallpaper.webp', '/favicon.ico', '/app-icon.png']:
+		if self.path in ['/style.css', '/wallpaper.webp', '/favicon.ico', '/app-icon.png', '/sw.js', '/manifest.json']:
 			pass
 		elif not self.is_authenticated():
 			self.serve_login_page()
@@ -1963,7 +1963,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 
 			# 🧼 Set-Cookie to a past date to instruct the browser to scrub it instantly, then bounce to home login page
 			self.send_response(303)
-			self.send_header('Set-Cookie', 'session_id=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict')
+			self.send_header('Set-Cookie', 'session_id=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax')
 			self.send_header('Location', '/')
 			self.end_headers()
 			return
@@ -2015,7 +2015,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					ACTIVE_SESSIONS[new_session_id] = expires_at
 
 				self.send_response(303)
-				self.send_header('Set-Cookie', f'session_id={new_session_id}; Path=/; Max-Age={SESSION_MAX_AGE}; HttpOnly; SameSite=Strict')
+				self.send_header('Set-Cookie', f'session_id={new_session_id}; Path=/; Max-Age={SESSION_MAX_AGE}; HttpOnly; SameSite=Lax')
 				self.send_header('Location', '/')
 				self.end_headers()
 				return
