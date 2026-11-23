@@ -106,12 +106,11 @@ code {
 .tab-nav {
     display: flex;
     flex-wrap: nowrap;
-    justify-content: space-between;
     align-items: center;
     gap: 0px; /* Reduced from 8px — set to 0 if you want them touching */
     border-bottom: 2px solid var(--light-border);
     margin-bottom: 0;
-    overflow-x: auto;
+    overflow-x: hidden;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -120,12 +119,25 @@ code {
 
 .tab-nav-links {
     display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.tab-nav-links::-webkit-scrollbar {
+    display: none;
 }
 
 .logout-btn {
     display: none;
-    margin-bottom: -2px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    margin-bottom: 0;
     color: var(--danger-red);
     font-weight: bold;
 }

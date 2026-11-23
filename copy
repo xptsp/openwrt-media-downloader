@@ -1,4 +1,6 @@
 #!/bin/bash
+set RESTART=n
+
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Beginning Copy process..."
 hashcopy() {
 	local HASH="$(grep $1 .hash | cut -d" " -f 1)"
@@ -6,6 +8,7 @@ hashcopy() {
 		[[ "$(grep $HASH .hash_new | awk '{print $1}')" == "$HASH" ]] && return
 	fi
 	scp $1 $2
+	[[ "$1" == "files/media-downloader.init" || "$1" == "files/media-downloader.py" ]] && RESTART=y
 }
 
 touch .hash
@@ -20,5 +23,5 @@ hashcopy files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
 
 hashcopy files/media-downloader.crontab root@homelab.lan:/etc/crontabs/media-downloader
 hashcopy files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
-ssh root@homelab.lan service media-downloader restart || exit 1
+[[ "${RESTART}" == "y" ]] && ssh root@homelab.lan service media-downloader restart || exit 1
 mv .hash_new .hash

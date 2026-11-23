@@ -1406,6 +1406,94 @@ def resolve_wetafiles_url(target_url, desktop_headers):
 			return resolved_download(media_url)
 	return None
 
+class LoadedFilesRedirectHandler(urllib.request.HTTPRedirectHandler):
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		return None
+
+def resolve_loadedfiles_url(target_url, desktop_headers):
+	"""Follow LoadedFiles' first and second landing pages to the media redirect."""
+	cookie_jar = http.cookiejar.CookieJar()
+	opener = urllib.request.build_opener(
+		urllib.request.HTTPCookieProcessor(cookie_jar),
+		LoadedFilesRedirectHandler()
+	)
+
+	def get_page(url, referer=None):
+		headers = dict(desktop_headers)
+		cookie_request = urllib.request.Request(url)
+		cookie_jar.add_cookie_header(cookie_request)
+		if cookie_request.get_header("Cookie"):
+			headers["Cookie"] = cookie_request.get_header("Cookie")
+		if referer:
+			headers["Referer"] = referer
+		request = urllib.request.Request(url, headers=headers)
+		with opener.open(request, timeout=30) as response:
+			return response.geturl(), response.read().decode('utf-8', errors='ignore')
+
+	def decoded_js_url(value):
+		value = re.sub(
+			r'\\u([0-9a-fA-F]{4})',
+			lambda match: chr(int(match.group(1), 16)),
+			value
+		)
+		value = value.replace(r'\/', '/').replace(r'\\/', '/')
+		return unescape(value)
+
+	first_url, first_html = get_page(target_url)
+	second_candidates = re.findall(
+		r'''href\s*=\s*(["'])(https?://loadedfiles\.net/[^"']+\?pt=[^"']+)\1''',
+		first_html,
+		re.IGNORECASE
+	)
+	if not second_candidates:
+		return None
+
+	second_url = unescape(second_candidates[0][1])
+	second_url = second_url.replace('&amp;', '&')
+	second_url, second_html = get_page(second_url, first_url)
+
+	final_candidates = []
+	js_link = re.search(r'''link\s*:\s*(["'])(.*?)\1''', second_html, re.IGNORECASE | re.DOTALL)
+	if js_link:
+		final_candidates.append(decoded_js_url(js_link.group(2)))
+	final_candidates.extend(
+		urllib.parse.urljoin(second_url, unescape(match))
+		for match in re.findall(r'''https?://loadedfiles\.net/[^\s"'<>]+\?pt=[^\s"'<>]+''', second_html, re.IGNORECASE)
+	)
+
+	for final_candidate in final_candidates:
+		final_candidate = urllib.parse.urljoin(second_url, final_candidate)
+		headers = dict(desktop_headers)
+		headers["Referer"] = second_url
+		cookie_request = urllib.request.Request(final_candidate)
+		cookie_jar.add_cookie_header(cookie_request)
+		if cookie_request.get_header("Cookie"):
+			headers["Cookie"] = cookie_request.get_header("Cookie")
+		request = urllib.request.Request(final_candidate, headers=headers)
+		try:
+			with opener.open(request, timeout=30) as response:
+				content_type = response.headers.get("Content-Type", "")
+				response_url = response.geturl()
+				if content_type.lower().startswith("video/") or re.search(r'\.(?:mkv|mp4|avi)(?:[?#]|$)', response_url, re.IGNORECASE):
+					return resolved_loadedfiles_download(response_url, cookie_jar, final_candidate)
+		except urllib.error.HTTPError as redirect_error:
+			if redirect_error.code in (301, 302, 303, 307, 308):
+				location = redirect_error.headers.get("Location")
+				if location:
+					media_url = urllib.parse.urljoin(final_candidate, location)
+					if re.search(r'\.(?:mkv|mp4|avi)(?:[?#]|$)', media_url, re.IGNORECASE):
+						return resolved_loadedfiles_download(media_url, cookie_jar, final_candidate)
+	return None
+
+def resolved_loadedfiles_download(media_url, cookie_jar, referer):
+	cookie_request = urllib.request.Request(media_url)
+	cookie_jar.add_cookie_header(cookie_request)
+	return {
+		"url": media_url,
+		"referer": referer,
+		"cookie": cookie_request.get_header("Cookie", "")
+	}
+
 def is_allowed_source_url(url, allowed_domains):
 	try:
 		parsed_url = urllib.parse.urlparse(url)
@@ -1546,7 +1634,7 @@ def run_downloader_cycle():
 					if any(x in url_lower for x in ["gmpg.org", "wordpress", "telegram.me", "t.me", "tiktok.com", "twitter.com", "/feed/", "#comment"]):
 						continue
 
-					is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or "wetafiles.com" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
+					is_file_locker = "downloadwella" in url_lower or "downloawella" in url_lower or "wetafiles.com" in url_lower or "loadedfiles.net" in url_lower or url_lower.endswith(('.mkv', '.mp4', '.avi'))
 					if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
 						continue
 
@@ -1591,8 +1679,20 @@ def run_downloader_cycle():
 						final_download_url = None
 						final_download_headers = {}
 
+						if "loadedfiles.net" in url_lower:
+							try:
+								resolved_download = resolve_loadedfiles_url(target_url, desktop_headers)
+								if resolved_download:
+									final_download_url = resolved_download.get("url")
+									final_download_headers = {
+										"referer": resolved_download.get("referer", target_url),
+										"cookie": resolved_download.get("cookie", "")
+									}
+							except Exception as locker_err:
+								log_message(f"[{s_id}] Failed LoadedFiles download generation pass: {locker_err}")
+
 						# Resolve WetaFiles' free-download form flow.
-						if "wetafiles.com" in url_lower:
+						elif "wetafiles.com" in url_lower:
 							try:
 								resolved_download = resolve_wetafiles_url(target_url, desktop_headers)
 								if resolved_download:
