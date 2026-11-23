@@ -1328,6 +1328,27 @@ def extract_media_url(html):
 			return candidate.rstrip('.,);')
 	return None
 
+def extract_episode_links(html):
+	"""Extract links with an episode number from their surrounding paragraph."""
+	links = []
+	link_pattern = re.compile(
+		r'''href=["'](https?://[^"']+)["'][^>]*>(.*?)</a>''',
+		re.DOTALL | re.IGNORECASE
+	)
+	for link_match in link_pattern.finditer(html):
+		paragraph_start = html.rfind("<p", 0, link_match.start())
+		paragraph_end = html.find("</p>", link_match.end())
+		paragraph = html[paragraph_start:paragraph_end] if paragraph_start != -1 and paragraph_end != -1 else ""
+		paragraph_text = re.sub(r'<[^>]*>', ' ', paragraph)
+		episode_match = re.search(
+			r'\b(?:episode|ep)\s*#?\s*(\d{1,3})\b',
+			unescape(paragraph_text),
+			re.IGNORECASE
+		)
+		episode_number = episode_match.group(1) if episode_match and int(episode_match.group(1)) <= 150 else ""
+		links.append((link_match.group(1), link_match.group(2), episode_number))
+	return links
+
 def find_xfiles_form(forms, expected_op=""):
 	for form in forms:
 		if form["fields"].get("op", "").lower() == expected_op:
@@ -1614,7 +1635,7 @@ def run_downloader_cycle():
 					html = html[content_start:content_end] if content_end != -1 else html[content_start:]
 
 				# Extract ALL links inside the sanitized body block
-				links_found = re.findall(r'href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+				links_found = extract_episode_links(html)
 				url_slug_match = re.search(r'dramakey\.com/([^/]+)', url.lower())
 				if not url_slug_match:
 					url_slug_match = re.search(r'thenkiri\.com/([^/]+)', url.lower())
@@ -1622,7 +1643,7 @@ def run_downloader_cycle():
 
 				clean_series_slug = series_slug.replace('/', '').strip()
 
-				for target_url, link_text in links_found:
+				for target_url, link_text, page_episode_number in links_found:
 					if ABORT_SYNC_FLAG:
 						log_message("[Sync Cycle] Abort signal received. Halting remaining crawler pass.")
 						break
@@ -1638,7 +1659,7 @@ def run_downloader_cycle():
 					if not is_file_locker and clean_series_slug and (clean_series_slug not in url_lower):
 						continue
 
-					has_episode_marker = re.search(r'ep|episode|s\d+|down', clean_text_lower)
+					has_episode_marker = page_episode_number or re.search(r'ep|episode|s\d+|down', clean_text_lower)
 					has_episode_url_marker = re.search(r's\d+e\d+|(?<![a-z0-9])(?:episode|ep|e)[-_.\s]*\d+', url_lower)
 					if not has_episode_marker and not has_episode_url_marker:
 						continue
@@ -1648,7 +1669,9 @@ def run_downloader_cycle():
 					if not is_movie and not has_episode_marker and not has_episode_url_marker:
 						continue
 
-					ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
+					ep_numbers = [page_episode_number] if page_episode_number else []
+					if not ep_numbers:
+						ep_numbers = [n for n in re.findall(r'(?:ep|e|episode)[-_\s]*(\d+)', clean_text_lower) if int(n) <= 150]
 					if not ep_numbers:
 						ep_numbers = [n for n in re.findall(r's\d+e(\d+)', url_lower) if int(n) <= 150]
 					if not ep_numbers:
