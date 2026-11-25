@@ -114,6 +114,8 @@ The package adds a two-hourly job to root's OpenWrt crontab without replacing ot
 /etc/init.d/cron restart
 ```
 
+When the dashboard service is running, the scheduled job delegates the sync to it so the run appears in the web UI logs. If the service is stopped, cron runs the sync directly.
+
 ---
 
 ## 📱 Mobile PWA & Share Sheet Installation Guide

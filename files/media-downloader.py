@@ -18,6 +18,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
 import signal
+import socket
+import socketserver
 import subprocess
 import queue
 
@@ -31,6 +33,7 @@ VAPID_PRIVATE_KEY_FILE = "/usr/libexec/media-downloader/media-downloader.vapid"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
 SESSION_DUMP_FILE = "/tmp/media-downloader.sessions.json"
 SESSION_DUMP_ACK_FILE = "/tmp/media-downloader.sessions.saved"
+CRON_SYNC_SOCKET_FILE = "/var/run/media-downloader-cron.sock"
 
 # Global memory log buffer to avoid grinding router flash storage
 ACTIVE_DOWNLOADS = {}
@@ -1434,7 +1437,7 @@ def extract_media_url(html):
 
 def extract_episode_links(html):
 	"""Extract links with an episode number from their surrounding paragraph."""
-	links = []
+	links = re.findall(r'''href=["'](https?://[^"']+)["'][^>]*>(.*?)</a>()''', html, re.DOTALL | re.IGNORECASE)
 	link_pattern = re.compile(
 		r'''href=["'](https?://[^"']+)["'][^>]*>(.*?)</a>''',
 		re.DOTALL | re.IGNORECASE
@@ -1912,6 +1915,61 @@ def run_downloader_cycle():
 		log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
 	finally:
 		SYNC_LOCK.release()
+
+class CronSyncRequestHandler(socketserver.StreamRequestHandler):
+	def handle(self):
+		if self.rfile.readline(32).strip() != b"SYNC":
+			self.wfile.write(b"ERROR\n")
+			return
+
+		self.wfile.write(b"ACCEPTED\n")
+		self.wfile.flush()
+		log_message("[Cron] Scheduled sync accepted by the dashboard server.")
+		run_downloader_cycle()
+		log_message("[Cron] Scheduled sync request completed.")
+		self.wfile.write(b"COMPLETED\n")
+
+class ThreadingUnixStreamServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+	daemon_threads = True
+
+def start_cron_sync_server():
+	socket_path = CRON_SYNC_SOCKET_FILE
+	os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+	if os.path.lexists(socket_path):
+		if not stat.S_ISSOCK(os.lstat(socket_path).st_mode):
+			raise RuntimeError(f"Refusing to replace non-socket cron control path: {socket_path}")
+		with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+			probe.settimeout(0.25)
+			try:
+				probe.connect(socket_path)
+			except (ConnectionRefusedError, FileNotFoundError):
+				os.unlink(socket_path)
+			else:
+				raise RuntimeError(f"Cron control socket is already active: {socket_path}")
+
+	server = ThreadingUnixStreamServer(socket_path, CronSyncRequestHandler)
+	os.chmod(socket_path, 0o600)
+	thread = threading.Thread(target=server.serve_forever, name="CronSyncControl", daemon=True)
+	thread.start()
+	log_message("[Cron] Local sync control socket is ready.")
+	return server
+
+def request_running_server_sync():
+	with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+		try:
+			client.connect(CRON_SYNC_SOCKET_FILE)
+		except (ConnectionRefusedError, FileNotFoundError):
+			return False
+		client.sendall(b"SYNC\n")
+		response = client.makefile("rb")
+		try:
+			if response.readline() != b"ACCEPTED\n":
+				raise RuntimeError("The dashboard server rejected the scheduled sync request.")
+			if response.readline() != b"COMPLETED\n":
+				raise RuntimeError("The dashboard server disconnected before completing the scheduled sync.")
+		finally:
+			response.close()
+	return True
 
 ##############################################################################################
 # Web Server handlers
@@ -2822,13 +2880,15 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 ##############################################################################################
 if __name__ == '__main__':
 	if len(sys.argv) > 1 and sys.argv[1] == '--cron':
-		run_downloader_cycle()
+		if not request_running_server_sync():
+			run_downloader_cycle()
 		sys.exit(0)
 	signal.signal(signal.SIGUSR1, request_session_dump)
 	try:
 		restore_active_sessions()
 	finally:
 		session_state_ready.set()
+	cron_sync_server = start_cron_sync_server()
 
 	# =====================================================================
 	# 🚀 BACKGROUND THREAD QUEUE INITIALIZATION BOOTLOADER
