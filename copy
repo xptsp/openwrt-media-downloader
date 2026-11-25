@@ -1,7 +1,11 @@
 #!/bin/bash
-RESTART=n
 
+# Tell user when this update started:
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Beginning Copy process..."
+
+# Function to hash files and copy if changed:
+
+RESTART=n
 hashcopy() {
 	local HASH="$(grep $1 .hash | cut -d" " -f 1)"
 	if [[ ! -z "${HASH}" ]]; then
@@ -11,6 +15,7 @@ hashcopy() {
 	[[ "$1" == "files/media-downloader.init" || "$1" == "files/media-downloader.py" ]] && RESTART=y
 }
 
+# Copy files over ONLY if they have changed:
 touch .hash
 sha256sum files/* > .hash_new
 hashcopy files/media-downloader.py root@homelab.lan:/usr/libexec/media-downloader/media-downloader.py
@@ -20,9 +25,11 @@ hashcopy files/manifest.json root@homelab.lan:/usr/share/media-downloader/manife
 hashcopy files/sw.js root@homelab.lan:/usr/share/media-downloader/sw.js
 hashcopy files/app-icon.png root@homelab.lan:/usr/share/media-downloader/app-icon.png
 hashcopy files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
+hashcopy files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
+mv .hash_new .hash
 
-scp files/media-downloader.crontab root@homelab.lan:/tmp/media-downloader.crontab || exit 1
-ssh root@homelab.lan 'sh -s' <<'REMOTE'
+# Replace the crontab line in the /etc/crontabs/root file:
+scp files/media-downloader.crontab root@homelab.lan:/tmp/media-downloader.crontab && ssh root@homelab.lan 'sh -s' <<'REMOTE'
 set -e
 crontab=/etc/crontabs/root
 mkdir -p /etc/crontabs
@@ -46,8 +53,9 @@ else
     logger -t media-downloader "Cron init script not found; scheduled job was installed but will not run."
 fi
 REMOTE
-hashcopy files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
+
+# Restart the service if the init.d script or python script was replaced:
 if [[ "${RESTART}" == "y" ]]; then
     ssh root@homelab.lan service media-downloader restart || exit 1
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Service restarted..."
 fi
-mv .hash_new .hash

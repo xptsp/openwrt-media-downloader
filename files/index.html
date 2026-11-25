@@ -35,6 +35,7 @@
 				<div class="tab-nav-links">
 					<!-- 🔗 Hyperlink Anchors: Standard URLs with client-side interception -->
 					<a href="/series" class="tab-btn active" onclick="event.preventDefault(); switchTab('series-tab')">📋 Series</a>
+					<a href="/movies" class="tab-btn" onclick="event.preventDefault(); switchTab('movies-tab')">🎬 Movies</a>
 					<a href="/watchlist" class="tab-btn" onclick="event.preventDefault(); switchTab('watchlist-tab')">👀 Watchlist</a>
 					<a href="/queue" class="tab-btn" onclick="event.preventDefault(); switchTab('queue-tab')">⏳ Queue</a>
 					<a href="/logs" class="tab-btn" onclick="event.preventDefault(); switchTab('logs-tab')">📜 Logs</a>
@@ -73,8 +74,22 @@
 			</div>
 		</div>
 
-		<!-- TAB 2: WATCHLIST VIEW CONTAINER -->
+		<!-- TAB 2: MOVIE LIBRARY -->
+		<div id="movies-tab" class="tab-content">
+			<div id="moviesGrid" class="series-grid" aria-live="polite"></div>
+			<div class="log-actions">
+				<button type="button" class="success-btn" onclick="openAddMovieModal()">➕ Add Movie</button>
+				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔄 Check Now</button>
+				<button type="button" class="secondary-btn" onclick="triggerStorageScan()">💾 Scan Paths</button>
+			</div>
+		</div>
+
+		<!-- TAB 3: WATCHLIST VIEW CONTAINER -->
 		<div id="watchlist-tab" class="tab-content">
+			<div class="series-view-toggle" role="tablist" aria-label="Watchlist media type">
+				<button type="button" id="watchlistSeriesTab" class="secondary-btn active" role="tab" aria-selected="true" aria-controls="watchlistTable" onclick="switchWatchlistType('series')">📺 Series</button>
+				<button type="button" id="watchlistMoviesTab" class="secondary-btn" role="tab" aria-selected="false" aria-controls="watchlistTable" onclick="switchWatchlistType('movie')">🎬 Movies</button>
+			</div>
 			<div class="table-responsive">
 				<table id="watchlistTable">
 					<thead>
@@ -92,12 +107,12 @@
 			</div>
 
 			<div class="log-actions">
-				<button type="button" class="success-btn" onclick="openAddWatchlistModal()">➕ Add to Watchlist</button>
+				<button type="button" id="addWatchlistButton" class="success-btn" onclick="openAddWatchlistModal()">➕ Add Series to Watchlist</button>
 				<button type="button" class="success-btn" onclick="triggerSyncUpdates()">🔄 Check Now</button>
 			</div>
 		</div>
 
-		<!-- TAB 3: QUEUE VIEW CONTAINER -->
+		<!-- TAB 4: QUEUE VIEW CONTAINER -->
 		<div id="queue-tab" class="tab-content">
 			<div class="table-responsive">
 				<table id="queueTable">
@@ -122,7 +137,7 @@
 			</div>
  		</div>
 
-		<!-- TAB 4: Live Activity Logs Terminal View -->
+		<!-- TAB 5: Live Activity Logs Terminal View -->
 		<div id="logs-tab" class="tab-content">
 			<!-- 🖥️ Real-Time Log Terminal Buffer Canvas Box -->
 			<div id="logTerminal" class="log-terminal"></div>
@@ -135,7 +150,7 @@
 			</div>
 		</div>
 
-		<!-- TAB 5: Program Configuration Panel -->
+		<!-- TAB 6: Program Configuration Panel -->
 		<div id="settings-tab" class="tab-content">
 			<form id="configForm" novalidate>
 				<div class="settings-subtab-nav" role="tablist" aria-label="Settings categories">
@@ -195,6 +210,11 @@
 						<label for="settingMoviesDir">🎬 Movies Base Directory</label>
 						<input type="text" id="settingMoviesDir" placeholder="/mnt/sd1/Movies">
 					</div>
+					<div class="form-group">
+						<label for="settingDirectoryBrowserRoot">📁 Directory Browser Root</label>
+						<input type="text" id="settingDirectoryBrowserRoot" placeholder="Leave blank to use storage boundary">
+						<small class="series-view-setting-hint">Optional. Limits Browse navigation to this directory and its descendants. Must be an existing directory below /.</small>
+					</div>
 				</div>
 
 				<div id="settingsOtherPanel" class="settings-subtab-panel storage-panel" role="tabpanel" aria-labelledby="settingsOtherTab" hidden>
@@ -251,15 +271,9 @@
 		<div class="modal-card">
 			<h3 id="modalFormTitle">🎬 Add Monitored Media Feed</h3>
 			<form id="seriesForm">
+				<input type="hidden" id="mediaType" value="series">
 				<div id="seriesModalColumns" class="series-modal-columns">
 					<div class="series-modal-details">
-						<div class="form-group">
-							<label for="mediaType">Media Type</label>
-							<select id="mediaType">
-								<option value="series">📺 TV Series</option>
-								<option value="movie">🎬 Movie</option>
-							</select>
-						</div>
 						<div class="form-group">
 							<label for="name">Series Name</label>
 							<div class="input-button-row">
@@ -277,7 +291,10 @@
 						</div>
 						<div class="form-group">
 							<label>Destination Path (Auto-generates):</label>
-							<input type="text" id="path" required placeholder="Will auto-fill based on name...">
+							<div class="input-button-row">
+								<input type="text" id="path" required placeholder="Will auto-fill based on name...">
+								<button type="button" class="secondary-btn no-wrap" onclick="openDirectoryBrowser()">📁 Browse</button>
+							</div>
 						</div>
 						<div id="modalEpisodesWrapper" class="form-group modal-episodes-wrapper">
 							<label class="modal-section-label">Managed Downloaded Episodes:</label>
@@ -309,6 +326,18 @@
 		</div>
 	</div>
 
+	<div id="directoryBrowserModal" class="modal-overlay directory-browser-modal">
+		<div class="modal-card directory-browser-card">
+			<h3>📁 Choose Destination Directory</h3>
+			<p id="directoryBrowserCurrentPath" class="directory-browser-current-path"></p>
+			<div id="directoryBrowserList" class="directory-browser-list" role="list"></div>
+			<div class="modal-buttons">
+				<button type="button" class="secondary-btn" onclick="closeDirectoryBrowser()">Cancel</button>
+				<button type="button" class="success-btn" onclick="selectBrowserDirectory()">Use This Directory</button>
+			</div>
+		</div>
+	</div>
+
 	<div id="posterLightbox" class="poster-lightbox" role="dialog" aria-modal="true" aria-label="Poster preview" hidden>
 		<button type="button" id="posterLightboxClose" class="poster-lightbox-close" aria-label="Close poster preview">×</button>
 		<img id="posterLightboxImage" alt="">
@@ -331,15 +360,9 @@
 		<div class="modal-card">
 			<h3 id="watchTitle">👀 Add to Watchlist</h3>
 			<form id="watchlistForm">
+				<input type="hidden" id="watchlistType" value="series">
 				<div class="form-group">
-					<label for="watchlistType">Media Type</label>
-					<select id="watchlistType">
-						<option value="series">📺 TV Series</option>
-						<option value="movie">🎬 Movie</option>
-					</select>
-				</div>
-				<div class="form-group">
-					<label for="watchlistName">Series Title</label>
+					<label for="watchlistName">Title</label>
 					<input type="text" id="watchlistName" placeholder="e.g., Merry Berry Love" required>
 				</div>
 				<div id="watchlistSearchResults" class="search-results watchlist-search-results"></div>
@@ -375,6 +398,23 @@
 		let queueCompletionDismissed = false;
 		let currentDashboardData = null;
 		let editModeId = null;
+		let selectedWatchlistType = 'series';
+
+		const switchWatchlistType = (type) => {
+			selectedWatchlistType = type === 'movie' ? 'movie' : 'series';
+			const isMovie = selectedWatchlistType === 'movie';
+			const seriesTab = document.getElementById('watchlistSeriesTab');
+			const moviesTab = document.getElementById('watchlistMoviesTab');
+			seriesTab.classList.toggle('active', !isMovie);
+			seriesTab.setAttribute('aria-selected', String(!isMovie));
+			moviesTab.classList.toggle('active', isMovie);
+			moviesTab.setAttribute('aria-selected', String(isMovie));
+			document.getElementById('addWatchlistButton').textContent = isMovie
+				? '➕ Add Movie to Watchlist'
+				: '➕ Add Series to Watchlist';
+			document.querySelector('#watchlistTable thead th').textContent = isMovie ? 'Movie Title' : 'Series Title';
+			if (currentDashboardData) loadDashboardData();
+		};
 
 		const SERIES_VIEW_OVERRIDE_KEY = 'seriesViewOverride';
 		const getSeriesViewOverride = () => {
@@ -489,6 +529,7 @@
 		const switchTab = (tabId, updateUrl = true) => {
 			const tabMap = {
 				'series-tab': '/series',
+				'movies-tab': '/movies',
 				'logs-tab': '/logs',
 				'settings-tab': '/settings',
 				'queue-tab': '/queue',
@@ -523,7 +564,7 @@
 
 			const targetBtn = document.querySelector(`.tab-nav .tab-btn[onclick*='${tabId}']`);
 			if (targetBtn) targetBtn.classList.add('active');
-			if (tabId === 'series-tab' || tabId === 'watchlist-tab') {
+			if (tabId === 'series-tab' || tabId === 'movies-tab' || tabId === 'watchlist-tab') {
 				loadDashboardData();
 			}
 
@@ -570,6 +611,7 @@
 			}
 			const pathToTab = {
 				'/series': 'series-tab',
+				'/movies': 'movies-tab',
 				'/queue': 'queue-tab',
 				'/logs': 'logs-tab',
 				'/settings': 'settings-tab',
@@ -684,16 +726,20 @@
 
 				const seriesGrid = document.getElementById('seriesGrid');
 				const seriesListBody = document.querySelector('#seriesTable tbody');
+				const moviesGrid = document.getElementById('moviesGrid');
 				seriesGrid.replaceChildren();
 				seriesListBody.replaceChildren();
+				moviesGrid.replaceChildren();
 
 				const sortedSeriesEntries = Object.entries(data.series || {}).sort((a, b) => {
 					const nameA = (a[1].name || a[0]).toLowerCase();
 					const nameB = (b[1].name || b[0]).toLowerCase();
 					return nameA.localeCompare(nameB);
 				});
+				const seriesEntries = sortedSeriesEntries.filter(([, sData]) => sData.type !== 'movie');
+				const movieEntries = sortedSeriesEntries.filter(([, sData]) => sData.type === 'movie');
 
-				if (sortedSeriesEntries.length === 0) {
+				if (seriesEntries.length === 0) {
 					const emptyMessage = document.createElement('p');
 					emptyMessage.className = 'series-empty-state';
 					emptyMessage.textContent = 'No series tracked yet. Click "Add Series" to start monitoring feeds.';
@@ -707,8 +753,14 @@
 					emptyRow.appendChild(emptyCell);
 					seriesListBody.appendChild(emptyRow);
 				}
+				if (movieEntries.length === 0) {
+					const emptyMessage = document.createElement('p');
+					emptyMessage.className = 'series-empty-state';
+					emptyMessage.textContent = 'No movies tracked yet. Click "Add Movie" to add one.';
+					moviesGrid.appendChild(emptyMessage);
+				}
 
-				sortedSeriesEntries.forEach(([id, sData]) => {
+				seriesEntries.forEach(([id, sData]) => {
 					const rawName = sData.name || id || '';
 					const episodes = sData.downloaded_episodes || [];
 					const isComplete = (sData.status === 'complete');
@@ -821,14 +873,79 @@
 					seriesListBody.appendChild(row);
 				});
 
+				movieEntries.forEach(([id, sData]) => {
+					const rawName = sData.name || id || '';
+					const episodes = sData.downloaded_episodes || [];
+					const isComplete = sData.status === 'complete';
+					const badgeText = isComplete ? 'COMPLETE' : (episodes.length ? 'DOWNLOADED' : 'IDLE');
+					const badgeClass = isComplete || !episodes.length ? 'status-neutral' : 'status-success';
+
+					const card = document.createElement('article');
+					card.className = 'series-card';
+					const poster = document.createElement('img');
+					poster.className = 'series-poster';
+					poster.alt = `${rawName} poster`;
+					poster.loading = 'lazy';
+					poster.src = sData.poster || '/app-icon.png';
+					poster.onerror = () => {
+						poster.onerror = null;
+						poster.src = '/app-icon.png';
+					};
+					if (sData.url) {
+						const posterLink = document.createElement('a');
+						posterLink.className = 'series-poster-link';
+						posterLink.href = sData.url;
+						posterLink.target = '_blank';
+						posterLink.rel = 'noopener noreferrer';
+						posterLink.appendChild(poster);
+						card.appendChild(posterLink);
+					} else {
+						card.appendChild(poster);
+					}
+
+					const details = document.createElement('div');
+					details.className = 'series-card-details';
+					const status = document.createElement('span');
+					status.className = `series-card-status ${badgeClass}`;
+					status.textContent = badgeText;
+					details.appendChild(status);
+					const title = document.createElement('a');
+					title.className = 'series-card-title';
+					title.textContent = rawName;
+					if (sData.url) {
+						title.href = sData.url;
+						title.target = '_blank';
+						title.rel = 'noopener noreferrer';
+					}
+					details.appendChild(title);
+					const actions = document.createElement('div');
+					actions.className = 'series-card-actions';
+					const editButton = document.createElement('button');
+					editButton.className = 'action-btn edit';
+					editButton.textContent = 'Edit';
+					editButton.addEventListener('click', () => openEditSeriesModal(id));
+					const removeButton = document.createElement('button');
+					removeButton.className = 'action-btn remove';
+					removeButton.textContent = 'Remove';
+					removeButton.addEventListener('click', () => deleteSeries(id, rawName));
+					actions.append(editButton, removeButton);
+					details.appendChild(actions);
+					card.appendChild(details);
+					moviesGrid.appendChild(card);
+				});
+
 				const watchlistBody = document.getElementById('watchlistTableBody');
 				if (watchlistBody) {
 					const watchlistEntries = Object.entries(currentDashboardData.watchlist || {});
-					if (watchlistEntries.length === 0) {
-						watchlistBody.innerHTML = '<tr><td colspan="2" class="empty-state-cell">No upcoming series on your watchlist.</td></tr>';
+					const filteredWatchlistEntries = watchlistEntries.filter(([, wData]) =>
+						(wData.type || 'series') === selectedWatchlistType
+					);
+					if (filteredWatchlistEntries.length === 0) {
+						const emptyLabel = selectedWatchlistType === 'movie' ? 'movies' : 'series';
+						watchlistBody.innerHTML = `<tr><td colspan="2" class="empty-state-cell">No upcoming ${emptyLabel} on your watchlist.</td></tr>`;
 					} else {
 						const grouped = {};
-						watchlistEntries.forEach(([wId, wData]) => {
+						filteredWatchlistEntries.forEach(([wId, wData]) => {
 							const src = (wData.source || 'thenkiri.com').toLowerCase();
 							if (!grouped[src]) grouped[src] = [];
 							grouped[src].push([wId, wData]);
@@ -883,6 +1000,7 @@
 
 				document.getElementById('settingAllowedDomains').value = currentDashboardData.global.allowed_domains || 'thenkiri.com,dramakey.com';
 				document.getElementById('settingMoviesDir').value = currentDashboardData.global.movies_dir || '/mnt/hdd/Movies';
+				document.getElementById('settingDirectoryBrowserRoot').value = currentDashboardData.global.directory_browser_root || '';
 				document.getElementById('cache_dir').value = currentDashboardData.global.cache_dir || '';
 
 				const ntfyEnabledEl = document.getElementById('settingNtfyEnabled');
@@ -1393,6 +1511,7 @@
 					base_dir: baseDirInput.value.trim(),
 					cache_dir: document.getElementById('cache_dir').value.trim(),
 					movies_dir: document.getElementById('settingMoviesDir').value.trim(),
+					directory_browser_root: document.getElementById('settingDirectoryBrowserRoot').value.trim(),
 					auth_enabled: authCheckbox.checked ? "1" : "0",
 					auth_username: document.getElementById('auth_username').value.trim(),
 					auth_password: document.getElementById('auth_password').value.trim(),
@@ -1568,10 +1687,10 @@
 			window.open(parsedUrl.href, '_blank', 'noopener,noreferrer');
 		});
 
-		const openAddSeriesModal = () => {
+		const openAddSeriesModal = (mediaLabel = 'Series') => {
 			editModeId = null;
 			clearSeriesSearchResults();
-			document.getElementById('modalFormTitle').innerText = '🎬 Add Monitored Media Feed';
+			document.getElementById('modalFormTitle').innerText = `🎬 Add ${mediaLabel}`;
 			document.getElementById('seriesForm').reset();
 			scheduleSeriesPosterPreview();
 			document.getElementById('modalEpisodesChecklist').innerHTML = '';
@@ -1580,8 +1699,83 @@
 			
 			// 🛡️ Push a virtual history state so the mobile Back button closes the modal
 			history.pushState({ modalOpen: true }, '', window.location.pathname + '#modal');
-			if (mediaTypeSelect) mediaTypeSelect.value = 'series';
+			if (mediaTypeSelect) {
+				const activeTab = document.querySelector('.tab-content.active');
+				mediaTypeSelect.value = activeTab && activeTab.id === 'movies-tab' ? 'movie' : 'series';
+			}
 			document.getElementById('addSeriesModal').classList.add('active');
+		};
+
+		const openAddMovieModal = () => {
+			openAddSeriesModal('Movie');
+		};
+
+		let selectedBrowserDirectory = '/';
+		const loadDirectoryBrowser = async (path = '') => {
+			const mediaType = document.getElementById('mediaType').value || 'series';
+			const query = new URLSearchParams({ type: mediaType });
+			if (path) query.set('path', path);
+			const list = document.getElementById('directoryBrowserList');
+			list.replaceChildren();
+			const loading = document.createElement('p');
+			loading.textContent = 'Loading directories…';
+			list.appendChild(loading);
+
+			try {
+				const response = await fetch(`/api/directories?${query.toString()}`);
+				const data = await response.json().catch(() => ({}));
+				if (!response.ok) throw new Error(data.message || 'Could not list this directory.');
+				selectedBrowserDirectory = data.path;
+				document.getElementById('directoryBrowserCurrentPath').textContent = data.path;
+				list.replaceChildren();
+
+				if (data.parent) {
+					const parentButton = document.createElement('button');
+					parentButton.type = 'button';
+					parentButton.className = 'directory-browser-entry';
+					parentButton.textContent = '⬆️ ..';
+					parentButton.addEventListener('click', () => loadDirectoryBrowser(data.parent));
+					list.appendChild(parentButton);
+				}
+
+				if (!data.directories.length) {
+					const empty = document.createElement('p');
+					empty.className = 'directory-browser-empty';
+					empty.textContent = 'No subdirectories here.';
+					list.appendChild(empty);
+				}
+				data.directories.forEach((directory) => {
+					const button = document.createElement('button');
+					button.type = 'button';
+					button.className = 'directory-browser-entry';
+					button.textContent = `📁 ${directory.name}`;
+					button.title = directory.path;
+					button.addEventListener('click', () => loadDirectoryBrowser(directory.path));
+					list.appendChild(button);
+				});
+			} catch (error) {
+				list.replaceChildren();
+				const message = document.createElement('p');
+				message.className = 'directory-browser-empty';
+				message.textContent = error.message || 'Could not list this directory.';
+				list.appendChild(message);
+			}
+		};
+
+		const openDirectoryBrowser = () => {
+			document.getElementById('directoryBrowserModal').classList.add('active');
+			loadDirectoryBrowser(document.getElementById('path').value.trim());
+		};
+
+		const closeDirectoryBrowser = () => {
+			document.getElementById('directoryBrowserModal').classList.remove('active');
+		};
+
+		const selectBrowserDirectory = () => {
+			const pathField = document.getElementById('path');
+			pathField.value = selectedBrowserDirectory;
+			pathField.dispatchEvent(new Event('input', { bubbles: true }));
+			closeDirectoryBrowser();
 		};
 
 		const openEditSeriesModal = (id) => {
@@ -1591,7 +1785,7 @@
 			editModeId = id;
 			clearSeriesSearchResults();
 
-			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Feed: ${sData.name || id}`;
+			document.getElementById('modalFormTitle').innerText = `⚙️ Edit Series: ${sData.name || id}`;
 			document.getElementById('name').value = sData.name || '';
 			document.getElementById('url').value = sData.url || '';
 			if (sData.poster) {
@@ -1819,8 +2013,8 @@
 			const titleEl = document.getElementById('watchlistModalTitle') || document.querySelector('#addWatchlistModal h3');
 			if (titleEl) titleEl.innerText = '👀 Add to Watchlist';
 			document.getElementById('watchlistForm').reset();
+			document.getElementById('watchlistType').value = selectedWatchlistType;
 			document.getElementById('addWatchlistModal').classList.add('active');
-			document.getElementById('watchlistType').value = 'series'
 		};
 
 		const openEditWatchlistModal = (wId) => {
@@ -1834,8 +2028,8 @@
 
 			document.getElementById('watchlistName').value = wData.name || '';
 			document.getElementById('watchlistSource').value = wData.source || 'thenkiri.com';
+			document.getElementById('watchlistType').value = wData.type || 'series';
 			document.getElementById('addWatchlistModal').classList.add('active');
-			document.getElementById('watchlistType').value = wData.type || 'series'
 		};
 
 		const closeAddWatchlistModal = () => {

@@ -561,6 +561,7 @@ def ensure_config_exists():
 			f.write("    option port '8080'\n")
 			f.write("    option base_dir '/mnt/sda1/Downloads'\n")
 			f.write("    option cache_dir '/mnt/sda1/Downloads/.media-downloader-cache'\n")
+			f.write("    option directory_browser_root ''\n")
 			f.write("    option auth_enabled '0'\n")
 			f.write("    option auth_username 'admin'\n")
 			f.write("    option auth_password 'admin'\n")
@@ -600,6 +601,7 @@ def read_uci_config():
 			"base_dir": "/mnt/sda1/Downloads",
 			"cache_dir": "",
 			"movies_dir": "/mnt/hdd/Movies",
+			"directory_browser_root": "",
 			"auth_enabled": "0",
 			"auth_username": "admin",
 			"auth_password": "admin",
@@ -688,6 +690,7 @@ def write_uci_config(config_data):
 		f.write(f"    option base_dir '{config_data['global'].get('base_dir', '/mnt/sda1/Downloads')}'\n")
 		f.write(f"    option cache_dir '{config_data['global'].get('cache_dir', '')}'\n")
 		f.write(f"    option movies_dir '{config_data['global'].get('movies_dir', '/mnt/hdd/Movies')}'\n")
+		f.write(f"    option directory_browser_root '{config_data['global'].get('directory_browser_root', '')}'\n")
 		f.write(f"    option auth_enabled '{config_data['global'].get('auth_enabled', '0')}'\n")
 		f.write(f"    option auth_username '{config_data['global'].get('auth_username', 'admin')}'\n")
 		f.write(f"    option auth_password '{config_data['global'].get('auth_password', 'admin')}'\n")
@@ -2082,7 +2085,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
 		# =====================================================================
 		clean_path = self.path.split('?')[0].rstrip('/') or '/series'
-		if clean_path in ('/series', '/queue', '/logs', '/settings', '/watchlist', '/feeds'):
+		if clean_path in ('/series', '/movies', '/queue', '/logs', '/settings', '/watchlist', '/feeds'):
 			try:
 				self.send_response(200)
 				self.send_header('Content-Type', 'text/html')
@@ -2212,6 +2215,102 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 			self.send_header('Content-Type', 'application/json')
 			self.end_headers()
 			self.wfile.write(json.dumps(config).encode('utf-8'))
+			return
+		#======================================================================
+		elif urllib.parse.urlsplit(self.path).path.rstrip('/') == '/api/directories':
+			config = read_uci_config()
+			query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+			media_type = query.get('type', ['series'])[0]
+			if media_type not in ('series', 'movie'):
+				media_type = 'series'
+
+			configured_root = config['global'].get('movies_dir', '/mnt/hdd/Movies') if media_type == 'movie' else config['global'].get('base_dir', '/mnt/sda1/Downloads')
+			configured_root = os.path.realpath(configured_root or '/')
+			configured_browser_root = os.path.expanduser(config['global'].get('directory_browser_root', '').strip())
+			if configured_browser_root:
+				browse_root = os.path.realpath(configured_browser_root)
+			else:
+				existing_root = configured_root
+				while not os.path.isdir(existing_root) and existing_root != os.path.dirname(existing_root):
+					existing_root = os.path.dirname(existing_root)
+
+				# Keep browsing on the configured storage filesystem. If no separate
+				# mountpoint exists, use the configured folder's parent as the boundary.
+				mount_root = existing_root
+				while mount_root != os.path.sep and not os.path.ismount(mount_root):
+					mount_root = os.path.dirname(mount_root)
+				if mount_root == os.path.sep:
+					browse_root = os.path.dirname(existing_root)
+					if browse_root == os.path.sep:
+						browse_root = existing_root
+				else:
+					browse_root = mount_root
+				browse_root = os.path.realpath(browse_root)
+
+			if browse_root == os.path.sep or not os.path.isdir(browse_root):
+				self.send_response(403)
+				self.send_header('Content-Type', 'application/json; charset=utf-8')
+				self.end_headers()
+				self.wfile.write(json.dumps({'message': 'Directory browsing needs an existing root directory below filesystem root.'}).encode('utf-8'))
+				return
+
+			if query.get('path', [''])[0]:
+				requested_path = query['path'][0]
+			else:
+				requested_path = configured_root
+
+			if not os.path.isabs(requested_path):
+				requested_path = os.path.abspath(requested_path)
+			current_path = os.path.realpath(requested_path)
+			while not os.path.isdir(current_path) and current_path != os.path.dirname(current_path):
+				current_path = os.path.dirname(current_path)
+			try:
+				inside_browse_root = os.path.commonpath((browse_root, current_path)) == browse_root
+			except ValueError:
+				inside_browse_root = False
+			if not os.path.isdir(current_path):
+				self.send_response(403)
+				self.send_header('Content-Type', 'application/json; charset=utf-8')
+				self.end_headers()
+				self.wfile.write(json.dumps({'message': 'This directory is not available.'}).encode('utf-8'))
+				return
+			if not inside_browse_root:
+				current_path = browse_root
+
+			directories = []
+			try:
+				with os.scandir(current_path) as entries:
+					for entry in entries:
+						try:
+							if entry.is_dir(follow_symlinks=True):
+								entry_path = os.path.realpath(entry.path)
+								if os.path.commonpath((browse_root, entry_path)) != browse_root:
+									continue
+								directories.append({
+									'name': entry.name,
+									'path': entry_path
+								})
+						except (OSError, ValueError):
+							continue
+			except OSError as browse_error:
+				self.send_response(403)
+				self.send_header('Content-Type', 'application/json; charset=utf-8')
+				self.end_headers()
+				self.wfile.write(json.dumps({'message': f'Cannot browse this directory: {browse_error}'}).encode('utf-8'))
+				return
+
+			directories.sort(key=lambda item: item['name'].casefold())
+			parent_path = os.path.dirname(current_path)
+			payload = {
+				'path': current_path,
+				'parent': parent_path if current_path != browse_root and parent_path != os.path.sep else '',
+				'directories': directories
+			}
+			self.send_response(200)
+			self.send_header('Content-Type', 'application/json; charset=utf-8')
+			self.send_header('Cache-Control', 'no-store')
+			self.end_headers()
+			self.wfile.write(json.dumps(payload).encode('utf-8'))
 			return
 		#======================================================================
 		elif self.path == '/api/push/vapid-public-key':
@@ -2519,6 +2618,25 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					config["global"]["cache_dir"] = str(data["cache_dir"]).strip()
 				if "movies_dir" in data:
 					config["global"]["movies_dir"] = data["movies_dir"].strip()
+				if "directory_browser_root" in data:
+					browser_root = os.path.expanduser(str(data["directory_browser_root"]).strip())
+					if browser_root:
+						if not os.path.isabs(browser_root):
+							self.send_response(400)
+							self.send_header('Content-Type', 'application/json')
+							self.end_headers()
+							self.wfile.write(json.dumps({"status": "error", "message": "Directory Browser Root must be an absolute path."}).encode('utf-8'))
+							return
+						browser_root = os.path.realpath(browser_root)
+						if browser_root == os.path.sep or not os.path.isdir(browser_root):
+							self.send_response(400)
+							self.send_header('Content-Type', 'application/json')
+							self.end_headers()
+							self.wfile.write(json.dumps({"status": "error", "message": "Directory Browser Root must be an existing directory below /."}).encode('utf-8'))
+							return
+					config["global"]["directory_browser_root"] = browser_root
+				else:
+					config["global"]["directory_browser_root"] = ""
 				if "auth_enabled" in data:
 					config["global"]["auth_enabled"] = str(data["auth_enabled"])
 				if "auth_username" in data:
