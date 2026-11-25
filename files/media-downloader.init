@@ -5,6 +5,7 @@ USE_PROCD=1
 
 # Name of your configuration file in /etc/config/
 CONFIG_NAME="media-downloader"
+SESSION_SAVE_ACK_FILE="/tmp/media-downloader.sessions.saved"
 
 start_service() {
     # Optional: Read global settings from UCI if needed
@@ -20,6 +21,26 @@ start_service() {
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance
+}
+
+stop_service() {
+    rm -f "$SESSION_SAVE_ACK_FILE"
+
+    if ! procd_send_signal "$CONFIG_NAME" "*" USR1 >/dev/null 2>&1; then
+        return 0
+    fi
+
+    attempts=0
+    while [ "$attempts" -lt 50 ]; do
+        if [ -f "$SESSION_SAVE_ACK_FILE" ]; then
+            rm -f "$SESSION_SAVE_ACK_FILE"
+            return 0
+        fi
+        sleep 0.1
+        attempts=$((attempts + 1))
+    done
+
+    logger -t media-downloader "Timed out waiting for the login-session dump before stopping."
 }
 
 service_triggers() {

@@ -12,10 +12,12 @@ import urllib.error
 import urllib.request
 import urllib.parse
 import http.cookiejar
+import stat
 from html import unescape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
+import signal
 import subprocess
 import queue
 
@@ -27,6 +29,8 @@ HTML_FILE = "/usr/share/media-downloader/index.html"
 PUSH_SUBSCRIPTIONS_FILE = "/usr/libexec/media-downloader/media-downloader.push"
 VAPID_PRIVATE_KEY_FILE = "/usr/libexec/media-downloader/media-downloader.vapid"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
+SESSION_DUMP_FILE = "/tmp/media-downloader.sessions.json"
+SESSION_DUMP_ACK_FILE = "/tmp/media-downloader.sessions.saved"
 
 # Global memory log buffer to avoid grinding router flash storage
 ACTIVE_DOWNLOADS = {}
@@ -37,6 +41,8 @@ log_lock = threading.Lock()
 
 ACTIVE_SESSIONS = {}
 session_lock = threading.Lock()
+session_dump_lock = threading.Lock()
+session_state_ready = threading.Event()
 push_subscriptions_lock = threading.Lock()
 vapid_key_lock = threading.Lock()
 
@@ -98,6 +104,104 @@ def clear_pending_download_tasks():
 			if DOWNLOAD_QUEUE.unfinished_tasks == 0:
 				DOWNLOAD_QUEUE.all_tasks_done.notify_all()
 	return cleared_count
+
+def save_active_sessions():
+	temporary_path = None
+	fd = None
+	try:
+		session_state_ready.wait()
+		with session_dump_lock:
+			with session_lock:
+				now = time.time()
+				sessions = {
+					session_id: expires_at
+					for session_id, expires_at in ACTIVE_SESSIONS.items()
+					if expires_at > now
+				}
+			fd, temporary_path = tempfile.mkstemp(prefix=".media-downloader-sessions-", dir="/tmp")
+			os.fchmod(fd, 0o600)
+			with os.fdopen(fd, "w", encoding="utf-8") as dump_file:
+				fd = None
+				json.dump(sessions, dump_file)
+				dump_file.flush()
+				os.fsync(dump_file.fileno())
+			os.replace(temporary_path, SESSION_DUMP_FILE)
+			temporary_path = None
+			ack_fd = os.open(SESSION_DUMP_ACK_FILE, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+			try:
+				os.fchmod(ack_fd, 0o600)
+			finally:
+				os.close(ack_fd)
+		log_message(f"[Session] Saved {len(sessions)} active login session(s) for restart.")
+	except Exception as save_error:
+		log_message(f"[Session Error] Could not save login sessions for restart: {save_error}")
+	finally:
+		if fd is not None:
+			os.close(fd)
+		if temporary_path:
+			try:
+				os.unlink(temporary_path)
+			except FileNotFoundError:
+				pass
+
+def request_session_dump(signum, frame):
+	try:
+		threading.Thread(target=save_active_sessions, name="SessionDump", daemon=True).start()
+	except Exception as signal_error:
+		log_message(f"[Session Error] Could not start session dump: {signal_error}")
+
+def restore_active_sessions():
+	dump_fd = None
+	try:
+		dump_fd = os.open(
+			SESSION_DUMP_FILE,
+			os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+		)
+		with os.fdopen(dump_fd, "r", encoding="utf-8") as dump_file:
+			dump_fd = None
+			file_stat = os.fstat(dump_file.fileno())
+			if (
+				not stat.S_ISREG(file_stat.st_mode)
+				or file_stat.st_uid != os.geteuid()
+				or file_stat.st_mode & 0o077
+			):
+				raise PermissionError("Session dump has unsafe ownership or permissions.")
+			sessions = json.load(dump_file)
+	except FileNotFoundError:
+		sessions = {}
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError) as load_error:
+		log_message(f"[Session Error] Could not restore login sessions: {load_error}")
+		sessions = {}
+	finally:
+		if dump_fd is not None:
+			os.close(dump_fd)
+
+	restored_count = 0
+	if isinstance(sessions, dict):
+		now = time.time()
+		with session_lock:
+			for session_id, expires_at in sessions.items():
+				if (
+					isinstance(session_id, str)
+					and re.fullmatch(r"[a-f0-9]{48}", session_id)
+					and isinstance(expires_at, (int, float))
+					and not isinstance(expires_at, bool)
+					and now < expires_at <= now + SESSION_MAX_AGE
+				):
+					ACTIVE_SESSIONS[session_id] = expires_at
+					restored_count += 1
+	else:
+		log_message("[Session Error] Session dump has an invalid format.")
+
+	for path in (SESSION_DUMP_FILE, SESSION_DUMP_ACK_FILE):
+		try:
+			os.unlink(path)
+		except FileNotFoundError:
+			pass
+		except OSError as cleanup_error:
+			log_message(f"[Session Error] Could not remove restart state {path}: {cleanup_error}")
+	if restored_count:
+		log_message(f"[Session] Restored {restored_count} active login session(s) after restart.")
 
 # Shared dictionary to hold progress updates for the CGI frontend /api/progress endpoint
 ACTIVE_DOWNLOADS = {}
@@ -1911,7 +2015,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 		# 🏠 SECURE PATH INTERCEPTOR: Deliver main template on core paths
 		# =====================================================================
 		clean_path = self.path.split('?')[0].rstrip('/') or '/series'
-		if clean_path in ('/series', '/queue', '/logs', '/settings', '/watchlist'):
+		if clean_path in ('/series', '/queue', '/logs', '/settings', '/watchlist', '/feeds'):
 			try:
 				self.send_response(200)
 				self.send_header('Content-Type', 'text/html')
@@ -1920,12 +2024,6 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 					self.wfile.write(f.read())
 			except Exception as e:
 				self.send_error(500, f"Dashboard extraction fault: {e}")
-			return
-		#======================================================================
-		elif self.path.rstrip('/') == '/feeds':
-			self.send_response(301)
-			self.send_header('Location', '/series')
-			self.end_headers()
 			return
 		#======================================================================
 		elif self.path == '/style.css':
@@ -2723,6 +2821,15 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 # Standalone script code to launch our app!
 ##############################################################################################
 if __name__ == '__main__':
+	if len(sys.argv) > 1 and sys.argv[1] == '--cron':
+		run_downloader_cycle()
+		sys.exit(0)
+	signal.signal(signal.SIGUSR1, request_session_dump)
+	try:
+		restore_active_sessions()
+	finally:
+		session_state_ready.set()
+
 	# =====================================================================
 	# 🚀 BACKGROUND THREAD QUEUE INITIALIZATION BOOTLOADER
 	# =====================================================================
@@ -2745,9 +2852,6 @@ if __name__ == '__main__':
 	# 🚀 START WEB SERVER
 	# =====================================================================
 	log_message("Initializing System Core Media Downloader Runtime Environment...")
-	if len(sys.argv) > 1 and sys.argv[1] == '--cron':
-		run_downloader_cycle()
-		sys.exit(0)
 	active_config = read_uci_config()
 	host_ip = active_config["global"].get("bind_address", "0.0.0.0")
 	try:

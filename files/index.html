@@ -566,7 +566,7 @@
 			}
 			const path = window.location.pathname.replace(/\/+$/, '') || '/series';
 			if (path === '/feeds') {
-				window.history.replaceState({}, '', '/series');
+				window.history.replaceState({}, '', `/series${window.location.search}${window.location.hash}`);
 			}
 			const pathToTab = {
 				'/series': 'series-tab',

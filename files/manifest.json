@@ -9,7 +9,7 @@
   "theme_color": "#181818",
   "orientation": "portrait-primary",
   "share_target": {
-    "action": "/feeds",
+    "action": "/series",
     "method": "GET",
     "params": {
       "title": "shared_title",

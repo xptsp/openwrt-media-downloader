@@ -18,7 +18,7 @@ A lightweight, self-hosted media synchronization engine and web dashboard engine
 * **🔀 Smart Soft Dependencies (FFmpeg & Curl):** Uses an adaptable download pipeline. Direct media links (`.mp4` / `.mkv`) are handled via system `curl` character streams, while `.m3u8` HLS playlists trigger a soft-dependency handoff to local `ffmpeg` workers if installed.
 * **🔄 State Persistence (UCI Format):** Integrates directly into native embedded system parameters. Storage paths, domain allowlists, notification settings, watchlist items, and downloaded sequences are managed via `/etc/config/media-downloader`.
 * **📁 Recursive Storage Synchronizer & Safe Pruning:** Scans nested season folders on startup or on demand (`S01E02`, `Ep 4`) to sync existing files back to your config, while safely evicting unchecked episodes (including `.nfo` and `.trickplay` assets) when edited manually.
-* **🛡️ Domain Allowlist & Session Security:** Restricts incoming shared links, series additions, and watchlist sources to a user-configurable list of allowed domains, backed by a cookie-based authentication gateway (`SameSite=Lax`, `HttpOnly`). Login cookies remain valid for 30 days unless you log out or restart the server.
+* **🛡️ Domain Allowlist & Session Security:** Restricts incoming shared links, series additions, and watchlist sources to a user-configurable list of allowed domains, backed by a cookie-based authentication gateway (`SameSite=Lax`, `HttpOnly`). Login sessions expire after 30 days or when you log out. init.d stops save active sessions to a mode-`0600` file in `/tmp`, preserving them across service restarts.
 
 ---
 
@@ -104,10 +104,14 @@ To guarantee the application daemon launches automatically on system boots, run:
 /etc/init.d/media-downloader start
 ```
 
-To run headless scraping cycles seamlessly in the background without launching the persistent HTTP server socket, configure a cron entry to pass the explicit execution flag:
+The package adds a two-hourly job to root's OpenWrt crontab without replacing other entries. To configure it manually, add this line to `/etc/crontabs/root` (OpenWrt crontab files do not include a username field), then restart cron:
 
 ```text
-0 */2 * * * /usr/libexec/media-downloader.py --cron
+0 */2 * * * /usr/bin/python3 /usr/libexec/media-downloader/media-downloader.py --cron
+```
+
+```sh
+/etc/init.d/cron restart
 ```
 
 ---
@@ -127,7 +131,7 @@ Because mobile browsers restrict Progressive Web App and Share Target features t
 3. Tap **Add to Home Screen** or **Install App** to deploy the standalone app wrapper to your device launcher.
 
 ### Browser Push Notifications
-After opening the dashboard over HTTPS (or localhost), visit **Settings** and choose **Enable Browser Push** on each device. Grant the browser notification permission; episode, movie, and Watchlist promotion alerts can then arrive even when the PWA is closed. Use **Test** beside the browser push control to verify delivery. The server persists its VAPID private key and device subscriptions under `/etc/config/` with owner-only permissions; keep those files when backing up the app configuration. Set `vapid_subject` to a contact email or HTTPS URL identifying the service.
+After opening the dashboard over HTTPS (or localhost), visit **Settings** and choose **Enable Browser Push** on each device. Grant the browser notification permission; episode, movie, and Watchlist promotion alerts can then arrive even when the PWA is closed. Use **Test** beside the browser push control to verify delivery. The server persists its VAPID private key and device subscriptions under `/usr/libexec/media-downloader/` with owner-only permissions; keep those files when backing up the app configuration. Set `vapid_subject` to a contact email or HTTPS URL identifying the service.
 
 The existing ntfy.sh integration remains independently configurable. Browser Web Push requires the `python3-cryptography` runtime package and supported browser push services; it does not require an ntfy account.
 

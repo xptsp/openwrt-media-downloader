@@ -1,1 +1,1 @@
-0 0 * * * root /usr/bin/python3 /usr/libexec/media-downloader.py --cron
+0 */2 * * * /usr/bin/python3 /usr/libexec/media-downloader/media-downloader.py --cron
