@@ -1912,6 +1912,15 @@ def run_downloader_cycle():
 			except Exception as e:
 				log_message(f"[{s_id}] Main engine execution exception crash: {e}")
 
+			# Notify if page has marked the series as Complete and stop processing
+			match = re.search(r'\bStatus\s*:\s*(Complete|Ongoing)\b', html, re.IGNORECASE)
+			if match:
+				detected_status = match.group(1).lower()
+				if detected_status != s_data.get('status'):
+					s_data['status'] = detected_status
+					write_uci_config(config)
+					log_message(f"[{s_id}] Series has been marked Completed by site.")
+
 		log_message(f"Scheduled sync parsing operation loop finalized. [{cycle_token}]")
 	finally:
 		SYNC_LOCK.release()
