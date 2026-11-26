@@ -86,9 +86,11 @@
 
 		<!-- TAB 3: WATCHLIST VIEW CONTAINER -->
 		<div id="watchlist-tab" class="tab-content">
-			<div class="series-view-toggle" role="tablist" aria-label="Watchlist media type">
-				<button type="button" id="watchlistSeriesTab" class="secondary-btn active" role="tab" aria-selected="true" aria-controls="watchlistTable" onclick="switchWatchlistType('series')">📺 Series</button>
-				<button type="button" id="watchlistMoviesTab" class="secondary-btn" role="tab" aria-selected="false" aria-controls="watchlistTable" onclick="switchWatchlistType('movie')">🎬 Movies</button>
+			<div class="series-toolbar">
+				<div class="series-view-toggle" role="group" aria-label="Series view">
+					<button type="button" id="watchlistSeriesTab" class="secondary-btn active" role="tab" aria-selected="true" aria-controls="watchlistTable" onclick="switchWatchlistType('series')">📺 Series</button>
+					<button type="button" id="watchlistMoviesTab" class="secondary-btn" role="tab" aria-selected="false" aria-controls="watchlistTable" onclick="switchWatchlistType('movie')">🎬 Movies</button>
+				</div>
 			</div>
 			<div class="table-responsive">
 				<table id="watchlistTable">
@@ -774,10 +776,10 @@
 					poster.className = 'series-poster';
 					poster.alt = `${rawName} poster`;
 					poster.loading = 'lazy';
-					poster.src = sData.poster || '/app-icon.png';
+					poster.src = sData.poster || '/no-poster.svg';
 					poster.onerror = () => {
 						poster.onerror = null;
-						poster.src = '/app-icon.png';
+						poster.src = '/no-poster.svg';
 					};
 					if (sData.url) {
 						const posterLink = document.createElement('a');
@@ -886,10 +888,10 @@
 					poster.className = 'series-poster';
 					poster.alt = `${rawName} poster`;
 					poster.loading = 'lazy';
-					poster.src = sData.poster || '/app-icon.png';
+					poster.src = sData.poster || '/no-poster.svg';
 					poster.onerror = () => {
 						poster.onerror = null;
-						poster.src = '/app-icon.png';
+						poster.src = '/no-poster.svg';
 					};
 					if (sData.url) {
 						const posterLink = document.createElement('a');

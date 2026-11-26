@@ -85,6 +85,7 @@ define Package/media-downloader/install
 	$(INSTALL_DATA) ./files/manifest.json $(1)/usr/share/media-downloader/manifest.json
 	$(INSTALL_DATA) ./files/sw.js $(1)/usr/share/media-downloader/sw.js
 	$(INSTALL_DATA) ./files/app-icon.png $(1)/usr/share/media-downloader/app-icon.png
+	$(INSTALL_DATA) ./files/no-poster.svg $(1)/usr/share/media-downloader/no-poster.svg
 	$(INSTALL_DATA) ./files/style.css $(1)/usr/share/media-downloader/style.css
 
 	# Install default empty UCI config profile

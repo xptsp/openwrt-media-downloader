@@ -24,6 +24,7 @@ hashcopy files/wallpaper.webp root@homelab.lan:/usr/share/media-downloader/wallp
 hashcopy files/manifest.json root@homelab.lan:/usr/share/media-downloader/manifest.json
 hashcopy files/sw.js root@homelab.lan:/usr/share/media-downloader/sw.js
 hashcopy files/app-icon.png root@homelab.lan:/usr/share/media-downloader/app-icon.png
+hashcopy files/no-poster.svg root@homelab.lan:/usr/share/media-downloader/no-poster.svg
 hashcopy files/style.css root@homelab.lan:/usr/share/media-downloader/style.css
 hashcopy files/media-downloader.init root@homelab.lan:/etc/init.d/media-downloader
 mv .hash_new .hash

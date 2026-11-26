@@ -456,6 +456,11 @@ body.poster-lightbox-open {
     border: 2px solid transparent;
 }
 
+#watchlist-tab .series-view-toggle .secondary-btn {
+    padding-top: 14px;
+    padding-bottom: 14px;
+}
+
 .series-view-toggle .secondary-btn.active {
     background-color: #d4edda;
     border-color: #28a745;

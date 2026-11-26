@@ -58,7 +58,15 @@ DOWNLOAD_TASK_LOCK = threading.Lock()
 SCHEDULED_DOWNLOAD_TASKS = set()
 
 def download_task_key(task):
-	return (str(task.get("series_id", "")), str(task.get("episode", "")))
+	series_id = str(task.get("series_id", "")).strip()
+	episode = str(task.get("episode", "")).strip()
+	# Episode numbers arrive from several scrapers and may be formatted as "01"
+	# or "1". Treat those as the same episode for queue deduplication.
+	try:
+		episode = str(int(episode))
+	except (TypeError, ValueError):
+		pass
+	return (series_id, episode)
 
 def enqueue_download_task(task):
 	key = download_task_key(task)
@@ -78,7 +86,7 @@ def release_download_task(task):
 		SCHEDULED_DOWNLOAD_TASKS.discard(download_task_key(task))
 
 def remove_queued_download_task(series_id, episode):
-	key = (str(series_id), str(episode))
+	key = download_task_key({"series_id": series_id, "episode": episode})
 	with DOWNLOAD_TASK_LOCK:
 		with DOWNLOAD_QUEUE.mutex:
 			queued_tasks = list(DOWNLOAD_QUEUE.queue)
@@ -2075,7 +2083,7 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 	def do_GET(self):
 		# 🔓 ASSET PASS GATES: Allow unauthenticated requests to pull design layout tools
 		base_dir = os.path.dirname(HTML_FILE)
-		if self.path in ['/style.css', '/wallpaper.webp', '/favicon.ico', '/app-icon.png', '/sw.js', '/manifest.json']:
+		if self.path in ['/style.css', '/wallpaper.webp', '/favicon.ico', '/app-icon.png', '/no-poster.svg', '/sw.js', '/manifest.json']:
 			pass
 		elif not self.is_authenticated():
 			self.serve_login_page()
@@ -2143,6 +2151,18 @@ class RouterHTTPHandler(BaseHTTPRequestHandler):
 				self.send_header('Content-Type', 'image/png')
 				self.end_headers()
 				with open(img_path, 'rb') as f:
+					self.wfile.write(f.read())
+			else:
+				self.send_response(404)
+				self.end_headers()
+			return
+		elif self.path == '/no-poster.svg':
+			placeholder_path = os.path.join(base_dir, 'no-poster.svg')
+			if os.path.exists(placeholder_path):
+				self.send_response(200)
+				self.send_header('Content-Type', 'image/svg+xml; charset=utf-8')
+				self.end_headers()
+				with open(placeholder_path, 'rb') as f:
 					self.wfile.write(f.read())
 			else:
 				self.send_response(404)
